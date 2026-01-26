@@ -1396,9 +1396,6 @@ bool ToolOrdering::insert_wipe_tower_extruder()
         return false;
     // In case that wipe_tower_extruder is set to non-zero, we must make sure that the extruder will be in the list.
     bool changed = false;
-    printf("DEBUG: enable_prime_tower = %d\n", m_print_config_ptr->enable_prime_tower.value);
-    printf("DEBUG: wipe_tower_filament = %d\n", m_print_config_ptr->wipe_tower_filament.value);
-    printf("DEBUG: m_layer_tools.size() = %zu\n", m_layer_tools.size());
     if (m_print_config_ptr->wipe_tower_filament != 0) {
         for (LayerTools& lt : m_layer_tools) {
             if (lt.wipe_tower_partitions > 0) {
@@ -1411,7 +1408,6 @@ bool ToolOrdering::insert_wipe_tower_extruder()
                     lt.extruders.erase(it);
                     lt.extruders.insert(lt.extruders.begin(), wipe_ext);
                 }
-                printf("DEBUG: After reorder, extruders: ");for(auto e : lt.extruders) printf("%d ", e); printf("\n");
                 changed = true;
             }
         }

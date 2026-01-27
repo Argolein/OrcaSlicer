@@ -354,23 +354,6 @@ void ToolOrdering::sort_and_build_data(const Print& print, unsigned int first_ex
     }
 
     this->collect_extruder_statistics(prime_multi_material);
-
-    if (this->insert_wipe_tower_extruder()) {
-        // Now convert the 0-based list to 1-based again, because that is what reorder_extruder expects.
-        for (LayerTools& lt : m_layer_tools) {
-            for (auto& extruder : lt.extruders)
-                ++extruder;
-        }
-
-        // Reorder the extruders again after wipe tower extruder was inserted.
-        this->reorder_extruders_for_minimum_flush_volume(reorder_first_layer);
-
-        // Convert back to 0-based.
-        for (LayerTools& lt : m_layer_tools) {
-            for (auto& extruder : lt.extruders)
-                --extruder;
-        }
-    }
 }
 
 void ToolOrdering::sort_and_build_data(const PrintObject& object , unsigned int first_extruder, bool prime_multi_material)
@@ -1399,31 +1382,6 @@ void ToolOrdering::reorder_extruders_for_minimum_flush_volume(bool reorder_first
         m_layer_tools[i].extruders = std::move(filament_sequences[i]);
 }
 // Layers are marked for infinite skirt aka draft shield. Not all the layers have to be printed.
-
-bool ToolOrdering::insert_wipe_tower_extruder()
-{
-    if(!m_print_config_ptr->enable_prime_tower)
-        return false;
-    // In case that wipe_tower_extruder is set to non-zero, we must make sure that the extruder will be in the list.
-    bool changed = false;
-    if (m_print_config_ptr->wipe_tower_filament != 0) {
-        for (LayerTools& lt : m_layer_tools) {
-            if (lt.wipe_tower_partitions > 0) {
-                lt.extruders.emplace_back(m_print_config_ptr->wipe_tower_filament.value - 1);
-                sort_remove_duplicates(lt.extruders);
-                // CRITICAL: Move wipe tower extruder to FIRST position
-                auto wipe_ext = m_print_config_ptr->wipe_tower_filament.value - 1;
-                auto it = std::find(lt.extruders.begin(), lt.extruders.end(), wipe_ext);
-                if (it != lt.extruders.end() && it != lt.extruders.begin()) {
-                    lt.extruders.erase(it);
-                    lt.extruders.insert(lt.extruders.begin(), wipe_ext);
-                }
-                changed = true;
-            }
-        }
-    }
-    return changed;
-}
 
 // Layers are marked for infinite skirt aka draft shield. Not all the layers have to be printed.
 void ToolOrdering::mark_skirt_layers(const PrintConfig &config, coordf_t max_layer_height)

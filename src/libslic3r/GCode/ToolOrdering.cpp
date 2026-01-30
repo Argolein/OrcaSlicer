@@ -1382,8 +1382,6 @@ void ToolOrdering::reorder_extruders_for_minimum_flush_volume(bool reorder_first
         m_layer_tools[i].extruders = std::move(filament_sequences[i]);
 }
 // Layers are marked for infinite skirt aka draft shield. Not all the layers have to be printed.
-
-// Layers are marked for infinite skirt aka draft shield. Not all the layers have to be printed.
 void ToolOrdering::mark_skirt_layers(const PrintConfig &config, coordf_t max_layer_height)
 {
     if (m_layer_tools.empty())

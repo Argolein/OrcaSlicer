@@ -218,6 +218,7 @@ private:
     size_t m_first_layer_idx    = size_t(-1);
     bool   m_flat_ironing       = false;
     bool   m_enable_tower_interface_features = false;
+    bool   m_enable_tower_interface_cooldown_during_tower = false;
     bool   m_prev_layer_had_interface = false;
     bool   m_current_layer_has_interface = false;
 

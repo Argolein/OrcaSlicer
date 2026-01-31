@@ -1489,7 +1489,8 @@ WipeTower::WipeTower(const PrintConfig& config, int plate_idx, Vec3d plate_origi
     m_extra_spacing((float)config.prime_tower_infill_gap.value/100.f),
     m_tower_framework(config.prime_tower_enable_framework.value),
     m_flat_ironing(config.prime_tower_flat_ironing.value),
-    m_enable_tower_interface_features(config.enable_tower_interface_features.value)
+    m_enable_tower_interface_features(config.enable_tower_interface_features.value),
+    m_enable_tower_interface_cooldown_during_tower(config.enable_tower_interface_cooldown_during_tower.value)
 {
     m_flat_ironing = (m_flat_ironing && m_use_gap_wall);
     // Read absolute value of first layer speed, if given as percentage,
@@ -2834,6 +2835,8 @@ WipeTower::ToolChangeResult WipeTower::tool_change_new(size_t new_tool, bool sol
             int interface_temp = m_filpar[new_tool].interface_print_temperature;
             if (interface_temp > 0 && interface_temp != base_temp)
                 writer.set_extruder_temp(interface_temp, true);
+            if (m_enable_tower_interface_cooldown_during_tower && interface_temp > 0 && interface_temp != base_temp)
+                writer.set_extruder_temp(base_temp, false);
             float pre_dist = m_filpar[new_tool].tower_interface_pre_extrusion_dist;
             float pre_len = m_filpar[new_tool].tower_interface_pre_extrusion_length;
             if (pre_dist > 0.f && pre_len > 0.f) {
@@ -2881,7 +2884,7 @@ WipeTower::ToolChangeResult WipeTower::tool_change_new(size_t new_tool, bool sol
         if (interface_layer) {
             int base_temp = is_first_layer() ? m_filpar[new_tool].nozzle_temperature_initial_layer : m_filpar[new_tool].nozzle_temperature;
             int interface_temp = m_filpar[new_tool].interface_print_temperature;
-            if (interface_temp > 0 && interface_temp != base_temp)
+            if (!m_enable_tower_interface_cooldown_during_tower && interface_temp > 0 && interface_temp != base_temp)
                 writer.set_extruder_temp(base_temp, false);
         }
 

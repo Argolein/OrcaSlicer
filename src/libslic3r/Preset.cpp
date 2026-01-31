@@ -924,6 +924,7 @@ static std::vector<std::string> s_Preset_print_options {
     "prime_tower_infill_gap",
     "prime_tower_flat_ironing",
     "enable_tower_interface_features",
+    "enable_tower_interface_cooldown_during_tower",
     "wipe_tower_no_sparse_layers", "compatible_printers", "compatible_printers_condition", "inherits",
     "flush_into_infill", "flush_into_objects", "flush_into_support",
      "tree_support_branch_angle", "tree_support_angle_slow", "tree_support_wall_count", "tree_support_top_rate", "tree_support_branch_distance", "tree_support_tip_diameter",

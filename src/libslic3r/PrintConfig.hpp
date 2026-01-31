@@ -1510,6 +1510,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionBool,               prime_tower_skip_points))
     ((ConfigOptionBool,               prime_tower_flat_ironing))
     ((ConfigOptionBool,               enable_tower_interface_features))
+    ((ConfigOptionBool,               enable_tower_interface_cooldown_during_tower))
     ((ConfigOptionFloat,              wipe_tower_bridging))
     ((ConfigOptionPercent,            wipe_tower_extra_flow))
     ((ConfigOptionFloats,             flush_volumes_matrix))

@@ -1273,7 +1273,8 @@ WipeTower2::WipeTower2(const PrintConfig& config, const PrintRegionConfig& defau
     m_extra_rib_length(config.wipe_tower_extra_rib_length),
     m_wall_type((int)config.wipe_tower_wall_type),
     m_flat_ironing(config.prime_tower_flat_ironing.value),
-    m_enable_tower_interface_features(config.enable_tower_interface_features.value)
+    m_enable_tower_interface_features(config.enable_tower_interface_features.value),
+    m_enable_tower_interface_cooldown_during_tower(config.enable_tower_interface_cooldown_during_tower.value)
 {
     // Read absolute value of first layer speed, if given as percentage,
     // it is taken over following default. Speeds from config are not
@@ -1587,6 +1588,8 @@ WipeTower::ToolChangeResult WipeTower2::tool_change(size_t tool)
             int interface_temp = m_filpar[tool].interface_print_temperature;
             if (interface_temp > 0 && interface_temp != base_temp)
                 writer.set_extruder_temp(interface_temp, true);
+            if (m_enable_tower_interface_cooldown_during_tower && interface_temp > 0 && interface_temp != base_temp)
+                writer.set_extruder_temp(base_temp, false);
             float pre_dist = m_filpar[tool].tower_interface_pre_extrusion_dist;
             float pre_len = m_filpar[tool].tower_interface_pre_extrusion_length;
             if (pre_dist > 0.f && pre_len > 0.f) {
@@ -1598,7 +1601,7 @@ WipeTower::ToolChangeResult WipeTower2::tool_change(size_t tool)
         toolchange_Wipe(writer, cleaning_box, wipe_volume, interface_layer);     // Wipe the newly loaded filament until the end of the assigned wipe area.
         if (interface_layer) {
             int interface_temp = m_filpar[tool].interface_print_temperature;
-            if (interface_temp > 0 && interface_temp != base_temp)
+            if (!m_enable_tower_interface_cooldown_during_tower && interface_temp > 0 && interface_temp != base_temp)
                 writer.set_extruder_temp(base_temp, false);
         }
         writer.append(";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Wipe_Tower_End) + "\n");

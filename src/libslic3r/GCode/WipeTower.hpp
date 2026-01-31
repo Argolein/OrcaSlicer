@@ -500,6 +500,7 @@ private:
     bool is_first_layer() const { return size_t(m_layer_info - m_plan.begin()) == m_first_layer_idx; }
     bool                       m_flat_ironing=false;
     bool                       m_enable_tower_interface_features=false;
+    bool                       m_enable_tower_interface_cooldown_during_tower=false;
     bool                       m_prev_layer_had_interface=false;
     bool                       m_current_layer_has_interface=false;
 	// Calculates length of extrusion line to extrude given volume

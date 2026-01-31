@@ -6435,6 +6435,12 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
+    def = this->add("enable_tower_interface_cooldown_during_tower", coBool);
+    def->label = L("Cool down from interface boost during prime tower");
+    def->tooltip = L("When interface-layer temperature boost is active, set the nozzle back to print temperature at the start of the prime tower so it cools down during the tower.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def           = this->add("prime_tower_infill_gap", coPercent);
     def->label    = L("Infill gap");
     def->tooltip  = L("Infill gap.");

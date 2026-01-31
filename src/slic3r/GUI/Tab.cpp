@@ -2603,6 +2603,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("enable_prime_tower", "multimaterial_settings_prime_tower");
         optgroup->append_single_option_line("prime_tower_skip_points", "multimaterial_settings_prime_tower");
         optgroup->append_single_option_line("enable_tower_interface_features", "multimaterial_settings_prime_tower");
+        optgroup->append_single_option_line("enable_tower_interface_cooldown_during_tower", "multimaterial_settings_prime_tower");
         optgroup->append_single_option_line("prime_tower_enable_framework", "multimaterial_settings_prime_tower");
         optgroup->append_single_option_line("prime_tower_width", "multimaterial_settings_prime_tower#width");
         optgroup->append_single_option_line("prime_volume", "multimaterial_settings_prime_tower");

@@ -5047,7 +5047,7 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     }
 
     // Drop target:
-    q->SetDropTarget(new PlaterDropTarget(*main_frame, *q));   // if my understanding is right, wxWindow takes the owenership
+    q->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
     q->Layout();
 
     apply_color_mode();

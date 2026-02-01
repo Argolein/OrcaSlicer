@@ -4302,7 +4302,6 @@ struct Plater::priv
     void reset_gcode_toolpaths();
 
     void reset_all_gizmos();
-    void set_drop_targets();
     void apply_free_camera_correction(bool apply = true);
     void update_ui_from_settings();
     // BBS
@@ -5047,8 +5046,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
         //q->Bind(EVT_GLVIEWTOOLBAR_ASSEMBLE, [q](SimpleEvent&) { q->select_view_3D("Assemble"); });
     }
 
-    // Drop targets:
-    set_drop_targets();
+    // Drop target:
+    q->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
     q->Layout();
 
     apply_color_mode();
@@ -8621,33 +8620,6 @@ void Plater::priv::reload_all_from_disk()
     for (unsigned int idx : curr_idxs) {
         selection.add(idx, false);
     }
-}
-
-void Plater::priv::set_drop_targets()
-{
-    if (q != nullptr)
-        q->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
-
-    auto set_canvas_drop_target = [this](wxWindow* window) {
-        if (window == nullptr)
-            return;
-        if (!window->IsBeingDeleted())
-            window->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
-        window->Bind(wxEVT_SHOW, [this, window](wxShowEvent& evt) {
-            if (evt.IsShown() && !window->IsBeingDeleted())
-                window->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
-            evt.Skip();
-        });
-    };
-
-    if (view3D != nullptr)
-        set_canvas_drop_target(view3D->get_wxglcanvas());
-
-    if (preview != nullptr)
-        set_canvas_drop_target(preview->get_wxglcanvas());
-
-    if (assemble_view != nullptr)
-        set_canvas_drop_target(assemble_view->get_wxglcanvas());
 }
 
 //BBS: add no_slice logic

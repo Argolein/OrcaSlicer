@@ -8626,16 +8626,26 @@ void Plater::priv::reload_all_from_disk()
 void Plater::priv::set_drop_targets()
 {
     if (q != nullptr)
-        set_drop_targets();
+        q->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
 
-    if (view3D != nullptr && view3D->get_wxglcanvas() != nullptr)
-        view3D->get_wxglcanvas()->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+    auto set_canvas_drop_target = [this](wxWindow* window) {
+        if (window == nullptr)
+            return;
+        window->CallAfter([this, window]() {
+            if (window->IsBeingDeleted())
+                return;
+            window->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+        });
+    };
 
-    if (preview != nullptr && preview->get_wxglcanvas() != nullptr)
-        preview->get_wxglcanvas()->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+    if (view3D != nullptr)
+        set_canvas_drop_target(view3D->get_wxglcanvas());
 
-    if (assemble_view != nullptr && assemble_view->get_wxglcanvas() != nullptr)
-        assemble_view->get_wxglcanvas()->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+    if (preview != nullptr)
+        set_canvas_drop_target(preview->get_wxglcanvas());
+
+    if (assemble_view != nullptr)
+        set_canvas_drop_target(assemble_view->get_wxglcanvas());
 }
 
 //BBS: add no_slice logic

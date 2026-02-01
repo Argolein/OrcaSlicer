@@ -8631,10 +8631,12 @@ void Plater::priv::set_drop_targets()
     auto set_canvas_drop_target = [this](wxWindow* window) {
         if (window == nullptr)
             return;
-        window->CallAfter([this, window]() {
-            if (window->IsBeingDeleted())
-                return;
+        if (!window->IsBeingDeleted())
             window->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+        window->Bind(wxEVT_SHOW, [this, window](wxShowEvent& evt) {
+            if (evt.IsShown() && !window->IsBeingDeleted())
+                window->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+            evt.Skip();
         });
     };
 

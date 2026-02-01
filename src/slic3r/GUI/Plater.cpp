@@ -4302,6 +4302,7 @@ struct Plater::priv
     void reset_gcode_toolpaths();
 
     void reset_all_gizmos();
+    void set_drop_targets();
     void apply_free_camera_correction(bool apply = true);
     void update_ui_from_settings();
     // BBS
@@ -5046,8 +5047,8 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
         //q->Bind(EVT_GLVIEWTOOLBAR_ASSEMBLE, [q](SimpleEvent&) { q->select_view_3D("Assemble"); });
     }
 
-    // Drop target:
-    q->SetDropTarget(new PlaterDropTarget(*main_frame, *q));   // if my understanding is right, wxWindow takes the owenership
+    // Drop targets:
+    set_drop_targets();
     q->Layout();
 
     apply_color_mode();
@@ -8620,6 +8621,21 @@ void Plater::priv::reload_all_from_disk()
     for (unsigned int idx : curr_idxs) {
         selection.add(idx, false);
     }
+}
+
+void Plater::priv::set_drop_targets()
+{
+    if (q != nullptr)
+        set_drop_targets();
+
+    if (view3D != nullptr && view3D->get_wxglcanvas() != nullptr)
+        view3D->get_wxglcanvas()->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+
+    if (preview != nullptr && preview->get_wxglcanvas() != nullptr)
+        preview->get_wxglcanvas()->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
+
+    if (assemble_view != nullptr && assemble_view->get_wxglcanvas() != nullptr)
+        assemble_view->get_wxglcanvas()->SetDropTarget(new PlaterDropTarget(*main_frame, *q));
 }
 
 //BBS: add no_slice logic

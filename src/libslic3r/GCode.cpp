@@ -7007,9 +7007,17 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         }
     } else {
         if (m_config.default_acceleration.value > 0) {
-            if (role == erExternalPerimeter && travel.length() < scale_(EXTRUDER_CONFIG(retraction_minimum_travel))) {
-                if (m_config.outer_wall_acceleration.value > 0)
+            const bool short_outer_travel =
+                (role == erExternalPerimeter || role == erOverhangPerimeter) &&
+                travel.length() < scale_(EXTRUDER_CONFIG(retraction_minimum_travel));
+
+            if (short_outer_travel) {
+                if (m_config.travel_short_distance_acceleration.value > 0) {
+                    acceleration_to_set = (unsigned int) floor(m_config.travel_short_distance_acceleration.value + 0.5);
+                } else if (m_config.outer_wall_acceleration.value > 0) {
+                    // Keep legacy fallback behavior when short-travel acceleration is disabled.
                     acceleration_to_set = (unsigned int) floor(m_config.outer_wall_acceleration.value + 0.5);
+                }
             } else {
                 if (m_config.travel_acceleration.value > 0)
                     acceleration_to_set = (unsigned int) floor(m_config.travel_acceleration.value + 0.5);

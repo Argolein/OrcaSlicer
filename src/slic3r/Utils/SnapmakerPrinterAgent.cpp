@@ -2,9 +2,13 @@
 #include "Http.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
+#include "slic3r/GUI/DeviceCore/DevManager.h"
 
 #include "nlohmann/json.hpp"
+#include <algorithm>
+#include <boost/algorithm/string.hpp>
 #include <boost/log/trivial.hpp>
+#include <cctype>
 
 namespace Slic3r {
 
@@ -17,6 +21,43 @@ template<typename T>
 T safe_at(const std::vector<T>& vec, int index, const T& fallback)
 {
     return (index >= 0 && index < static_cast<int>(vec.size())) ? vec[index] : fallback;
+}
+
+std::string normalize_http_base_url(std::string raw)
+{
+    boost::trim(raw);
+    if (raw.empty())
+        return "";
+
+    if (auto hash = raw.find('#'); hash != std::string::npos)
+        raw = raw.substr(0, hash);
+    if (auto query = raw.find('?'); query != std::string::npos)
+        raw = raw.substr(0, query);
+    boost::trim(raw);
+    if (raw.empty())
+        return "";
+
+    if (!boost::istarts_with(raw, "http://") && !boost::istarts_with(raw, "https://"))
+        raw = "http://" + raw;
+
+    const auto scheme_pos = raw.find("://");
+    if (scheme_pos == std::string::npos)
+        return "";
+    const auto host_begin = scheme_pos + 3;
+    if (host_begin >= raw.size())
+        return "";
+
+    if (auto slash = raw.find('/', host_begin); slash != std::string::npos)
+        raw = raw.substr(0, slash);
+
+    std::string authority = raw.substr(host_begin);
+    boost::trim(authority);
+    if (authority.empty())
+        return "";
+
+    if (raw.size() > 1 && raw.back() == '/')
+        raw.pop_back();
+    return raw;
 }
 
 } // anonymous namespace
@@ -48,13 +89,59 @@ std::string SnapmakerPrinterAgent::combine_filament_type(const std::string& type
     if (sub == "SNAPSPEED" || sub == "HS")
         return base + " HIGH SPEED";
 
-    // Unrecognized sub-type (brand names like Polylite, Basic, etc.) -- use base type only
-    return base;
+    // Preserve unknown sub-type as a hint for central vendor/type matching.
+    return base + " " + sub;
 }
 
 bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
 {
-    std::string url = join_url(device_info.base_url, "/printer/objects/query?print_task_config&filament_detect");
+    auto resolve_sync_base_url = [&](const std::string& target_dev_id) {
+        std::vector<std::string> candidates;
+        candidates.push_back(device_info.base_url);
+
+        if (auto* dev = GUI::wxGetApp().getDeviceManager()) {
+            if (!target_dev_id.empty()) {
+                if (auto* obj = dev->get_my_machine(target_dev_id); obj)
+                    candidates.push_back(obj->get_dev_ip());
+                if (auto* obj = dev->get_local_machine(target_dev_id); obj)
+                    candidates.push_back(obj->get_dev_ip());
+            }
+            if (auto* obj = dev->get_selected_machine())
+                candidates.push_back(obj->get_dev_ip());
+        }
+
+        if (auto* app_cfg = GUI::wxGetApp().app_config) {
+            if (!target_dev_id.empty()) {
+                const auto ip = app_cfg->get("ip_address", target_dev_id);
+                if (!ip.empty())
+                    candidates.push_back(ip);
+            }
+        }
+
+        if (auto* preset_bundle = GUI::wxGetApp().preset_bundle) {
+            const auto& cfg = preset_bundle->printers.get_edited_preset().config;
+            candidates.push_back(cfg.opt_string("print_host"));
+            candidates.push_back(cfg.opt_string("print_host_webui"));
+        }
+
+        for (const auto& candidate : candidates) {
+            auto normalized = normalize_http_base_url(candidate);
+            if (!normalized.empty())
+                return normalized;
+        }
+        return std::string{};
+    };
+
+    const std::string base_url = resolve_sync_base_url(dev_id);
+    if (base_url.empty()) {
+        BOOST_LOG_TRIVIAL(warning) << "SnapmakerPrinterAgent::fetch_filament_info: cannot resolve base_url"
+                                   << ", device_info.base_url='" << device_info.base_url
+                                   << "', dev_id='" << dev_id << "'";
+        return false;
+    }
+
+    // Query only print_task_config for robust cross-firmware behavior.
+    std::string url = join_url(base_url, "/printer/objects/query?print_task_config");
 
     std::string response_body;
     bool        success = false;
@@ -104,6 +191,7 @@ bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
 
     // Read parallel arrays from print_task_config
     auto filament_exist    = ptc.value("filament_exist", std::vector<bool>{});
+    auto filament_vendor   = ptc.value("filament_vendor", std::vector<std::string>{});
     auto filament_type     = ptc.value("filament_type", std::vector<std::string>{});
     auto filament_sub_type = ptc.value("filament_sub_type", std::vector<std::string>{});
     auto filament_color    = ptc.value("filament_color_rgba", std::vector<std::string>{});
@@ -135,17 +223,16 @@ bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
         if (tray.has_filament) {
             tray.tray_type     = combine_filament_type(safe_at(filament_type, i, empty_str),
                                                        safe_at(filament_sub_type, i, empty_str));
-            auto* bundle = GUI::wxGetApp().preset_bundle;
-            tray.tray_info_idx = bundle
-                ? bundle->filaments.filament_id_by_type(tray.tray_type)
-                : map_filament_type_to_generic_id(tray.tray_type);
+            tray.tray_vendor   = safe_at(filament_vendor, i, empty_str);
+            // Keep ID resolution centralized in PresetBundle::sync_ams_list (Snapmaker-only path).
+            tray.tray_info_idx = "";
             tray.tray_color    = safe_at(filament_color, i, default_color);
 
             // Extract NFC temperature data if available
             if (nfc_info.is_array() && i < static_cast<int>(nfc_info.size()) && nfc_info[i].is_object()) {
                 auto& nfc_slot = nfc_info[i];
-                std::string vendor = nfc_slot.value("VENDOR", "NONE");
-                if (vendor != "NONE" && !vendor.empty()) {
+                std::string nfc_vendor = nfc_slot.value("VENDOR", "NONE");
+                if (nfc_vendor != "NONE" && !nfc_vendor.empty()) {
                     tray.bed_temp    = nfc_slot.value("BED_TEMP", 0);
                     tray.nozzle_temp = nfc_slot.value("FIRST_LAYER_TEMP", 0);
                 }

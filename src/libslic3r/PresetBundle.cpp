@@ -2309,10 +2309,6 @@ void PresetBundle::get_ams_cobox_infos(AMSComboInfo& combox_info)
         }
         auto iter = std::find_if(filaments.begin(), filaments.end(),
                                  [this, &filament_id](auto &f) { return f.is_compatible && filaments.get_preset_base(f) == &f && f.filament_id == filament_id; });
-        if (iter == filaments.end() && !ams.opt_string("filament_vendor", 0u).empty()) {
-            iter = std::find_if(filaments.begin(), filaments.end(),
-                                [this, &filament_id](auto &f) { return filaments.get_preset_base(f) == &f && f.filament_id == filament_id; });
-        }
         if (iter == filaments.end()) {
             BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << boost::format(": filament_id %1% not found or system or compatible") % filament_id;
             auto filament_type = ams.opt_string("filament_type", 0u);
@@ -2362,127 +2358,12 @@ unsigned int PresetBundle::sync_ams_list(std::vector<std::pair<DynamicPrintConfi
         std::string filament_preset = "";
         std::vector<std::string> mutli_filament_color;
     };
-    auto norm_upper = [](std::string value) {
-        return boost::to_upper_copy(value);
-    };
-    const auto active_printer_name_upper = norm_upper(printers.get_edited_preset().name);
-    const bool active_is_u1 = active_printer_name_upper.find("U1") != std::string::npos;
-    const bool active_is_dual = active_printer_name_upper.find("DUAL") != std::string::npos ||
-                                active_printer_name_upper.find("J1") != std::string::npos;
-    auto find_visible_base_by_vendor_and_type = [&](const std::string& filament_vendor, const std::string& filament_type, bool require_compatible) {
-        const auto target_vendor = norm_upper(filament_vendor);
-        const auto target_type_full = norm_upper(filament_type);
-
-        std::string target_type_base = target_type_full;
-        std::string subtype_hint;
-        if (auto sep = target_type_full.find(' '); sep != std::string::npos) {
-            target_type_base = target_type_full.substr(0, sep);
-            subtype_hint     = target_type_full.substr(sep + 1);
-            boost::trim(subtype_hint);
-        }
-        const bool target_support_type =
-            target_type_full.find("SUP") != std::string::npos ||
-            target_type_full.find("SUPPORT") != std::string::npos ||
-            target_type_full.find("BREAKAWAY") != std::string::npos ||
-            target_type_full.find("PVA") != std::string::npos;
-
-        auto contains_upper = [](const std::string& text, const std::string& needle_upper) {
-            if (needle_upper.empty())
-                return false;
-            return boost::to_upper_copy(text).find(needle_upper) != std::string::npos;
-        };
-
-        auto best = filaments.end();
-        int  best_score = std::numeric_limits<int>::min();
-
-        for (auto it = filaments.begin(); it != filaments.end(); ++it) {
-            const auto& f = *it;
-            if (require_compatible && !f.is_compatible)
-                continue;
-            if (filaments.get_preset_base(f) != &f)
-                continue;
-
-            const auto preset_type = norm_upper(f.config.opt_string("filament_type", 0u));
-            const bool type_exact = (preset_type == target_type_full);
-            const bool type_base  = (preset_type == target_type_base);
-            if (!type_exact && !type_base)
-                continue;
-
-            auto* vendor_opt = dynamic_cast<const ConfigOptionStrings*>(f.config.option("filament_vendor"));
-            const std::string preset_vendor =
-                (vendor_opt && !vendor_opt->values.empty()) ? vendor_opt->values[0] : std::string{};
-            const auto preset_vendor_upper = norm_upper(preset_vendor);
-            const auto preset_name_upper   = norm_upper(f.name);
-            const bool preset_support =
-                f.config.opt_bool("filament_is_support", 0u) ||
-                preset_name_upper.find("SUPPORT") != std::string::npos ||
-                preset_name_upper.find("BREAKAWAY") != std::string::npos ||
-                preset_type.find("SUP") != std::string::npos ||
-                preset_type.find("PVA") != std::string::npos;
-
-            int score = 0;
-            if (type_exact)
-                score += 120;
-            else if (type_base)
-                score += 80;
-
-            if (!target_vendor.empty()) {
-                if (preset_vendor_upper == target_vendor)
-                    score += 500;
-                if (boost::starts_with(preset_name_upper, target_vendor + " "))
-                    score += 400;
-                else if (contains_upper(f.name, target_vendor))
-                    score += 150;
-            }
-
-            if (!subtype_hint.empty() && subtype_hint != "NONE" && contains_upper(f.name, subtype_hint))
-                score += 700;
-
-            const bool preset_is_dual = preset_name_upper.find("DUAL") != std::string::npos;
-            const bool hint_requests_dual = target_type_full.find("DUAL") != std::string::npos ||
-                                            subtype_hint.find("DUAL") != std::string::npos;
-            if (preset_is_dual && !hint_requests_dual) {
-                if (active_is_dual)
-                    score += 100;
-                else
-                    score -= 260;
-            }
-            if (active_is_u1) {
-                if (preset_name_upper.find("@U1") != std::string::npos || preset_name_upper.find(" U1") != std::string::npos)
-                    score += 140;
-                if (preset_is_dual && !hint_requests_dual)
-                    score -= 120;
-            }
-
-            if (!target_support_type && preset_support)
-                score -= 1400;
-            if (target_support_type && preset_support)
-                score += 200;
-
-            if (score > best_score) {
-                best_score = score;
-                best = it;
-            }
-        }
-
-        return best;
-    };
-    auto find_base_by_filament_id = [&](const std::string& filament_id, bool require_compatible) {
-        return std::find_if(filaments.begin(), filaments.end(),
-                            [this, &filament_id, require_compatible](const auto &f) {
-                                if (require_compatible && !f.is_compatible)
-                                    return false;
-                                return filaments.get_preset_base(f) == &f && f.filament_id == filament_id;
-                            });
-    };
     auto is_double_extruder = get_printer_extruder_count() == 2;
     std::vector<AmsInfo> ams_infos;
     int                  index = 0;
     for (auto &entry : filament_ams_list) {
         auto & ams = entry.second;
         auto filament_id = ams.opt_string("filament_id", 0u);
-        const bool is_snapmaker_sync = ams.has("sync_agent_id") &&
-                                       boost::iequals(ams.opt_string("sync_agent_id", 0u), "snapmaker");
         auto filament_color = ams.opt_string("filament_colour", 0u);
         auto filament_color_type = ams.opt_string("filament_colour_type", 0u);
         auto filament_changed = !ams.has("filament_changed") || ams.opt_bool("filament_changed");
@@ -2490,22 +2371,11 @@ unsigned int PresetBundle::sync_ams_list(std::vector<std::pair<DynamicPrintConfi
         auto ams_id     = ams.opt_string("ams_id", 0u);
         auto slot_id    = ams.opt_string("slot_id", 0u);
         auto filament_type = ams.opt_string("filament_type", 0u);
-        auto filament_vendor = ams.opt_string("filament_vendor", 0u);
         auto is_placeholder = ams.has("filament_slot_placeholder") && ams.opt_bool("filament_slot_placeholder", 0u);
         ams_infos.push_back({filament_id.empty() ? false : true, false, is_placeholder, filament_color});
         AMSMapInfo temp = {ams_id, slot_id};
         ams_array_maps.push_back(temp);
         index++;
-        if (is_snapmaker_sync && filament_id.empty()) {
-            if (!filament_type.empty() && !filament_vendor.empty()) {
-                auto iter_by_vendor = find_visible_base_by_vendor_and_type(filament_vendor, filament_type, true);
-                if (iter_by_vendor == filaments.end())
-                    iter_by_vendor = find_visible_base_by_vendor_and_type(filament_vendor, filament_type, false);
-                if (iter_by_vendor != filaments.end())
-                    filament_id = iter_by_vendor->filament_id;
-            }
-        }
-        ams_infos.back().valid = !filament_id.empty();
         if (filament_id.empty()) {
             if (use_map) {
                 for (int j = maps.size() - 1; j >= 0; j--) {
@@ -2541,38 +2411,6 @@ unsigned int PresetBundle::sync_ams_list(std::vector<std::pair<DynamicPrintConfi
         auto iter = std::find_if(filaments.begin(), filaments.end(), [this, &filament_id, &has_type, filament_type](auto &f) {
             has_type |= f.config.opt_string("filament_type", 0u) == filament_type;
             return f.is_compatible && filaments.get_preset_base(f) == &f && f.filament_id == filament_id; });
-        if (is_snapmaker_sync && iter == filaments.end() && !filament_vendor.empty()) {
-            auto iter_any = find_base_by_filament_id(filament_id, false);
-            if (iter_any != filaments.end())
-                iter = iter_any;
-        }
-        if (is_snapmaker_sync && iter != filaments.end() && !filament_type.empty() && !filament_vendor.empty()) {
-            auto* iter_vendor_opt = dynamic_cast<const ConfigOptionStrings*>(iter->config.option("filament_vendor"));
-            const std::string iter_vendor = (iter_vendor_opt && !iter_vendor_opt->values.empty()) ? iter_vendor_opt->values[0] : std::string{};
-            const bool vendor_match = boost::to_upper_copy(iter_vendor) == boost::to_upper_copy(filament_vendor);
-            const bool type_match = boost::to_upper_copy(iter->config.opt_string("filament_type", 0u)) == boost::to_upper_copy(filament_type);
-            if (!vendor_match || !type_match) {
-                auto iter_by_vendor = find_visible_base_by_vendor_and_type(filament_vendor, filament_type, true);
-                if (iter_by_vendor == filaments.end())
-                    iter_by_vendor = find_visible_base_by_vendor_and_type(filament_vendor, filament_type, false);
-                if (iter_by_vendor != filaments.end()) {
-                    iter = iter_by_vendor;
-                    filament_id = iter->filament_id;
-                }
-            }
-        }
-        if (iter == filaments.end()) {
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": filament_id %1% not found or system or compatible") % filament_id;
-            if (is_snapmaker_sync && !filament_type.empty() && !filament_vendor.empty()) {
-                auto iter_by_vendor = find_visible_base_by_vendor_and_type(filament_vendor, filament_type, true);
-                if (iter_by_vendor == filaments.end())
-                    iter_by_vendor = find_visible_base_by_vendor_and_type(filament_vendor, filament_type, false);
-                if (iter_by_vendor != filaments.end()) {
-                    iter = iter_by_vendor;
-                    filament_id = iter->filament_id;
-                }
-            }
-        }
         if (iter == filaments.end()) {
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": fallback by type for filament_id %1%") % filament_id;
             if (!filament_type.empty()) {

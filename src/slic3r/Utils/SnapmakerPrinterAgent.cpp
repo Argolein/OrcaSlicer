@@ -9,6 +9,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/log/trivial.hpp>
 #include <cctype>
+#include <limits>
 
 namespace Slic3r {
 
@@ -91,6 +92,127 @@ std::string SnapmakerPrinterAgent::combine_filament_type(const std::string& type
 
     // Preserve unknown sub-type as a hint for central vendor/type matching.
     return base + " " + sub;
+}
+
+std::string SnapmakerPrinterAgent::resolve_tray_info_idx(const std::string& tray_vendor, const std::string& tray_type) const
+{
+    auto* bundle = GUI::wxGetApp().preset_bundle;
+    if (!bundle)
+        return {};
+
+    const auto norm_upper = [](std::string value) { return boost::to_upper_copy(value); };
+    const auto contains_upper = [](const std::string& text, const std::string& needle_upper) {
+        if (needle_upper.empty())
+            return false;
+        return boost::to_upper_copy(text).find(needle_upper) != std::string::npos;
+    };
+
+    const auto target_vendor    = norm_upper(tray_vendor);
+    const auto target_type_full = norm_upper(tray_type);
+    if (target_type_full.empty())
+        return {};
+
+    std::string target_type_base = target_type_full;
+    std::string subtype_hint;
+    if (auto sep = target_type_full.find(' '); sep != std::string::npos) {
+        target_type_base = target_type_full.substr(0, sep);
+        subtype_hint     = target_type_full.substr(sep + 1);
+        boost::trim(subtype_hint);
+    }
+
+    const bool target_support_type =
+        target_type_full.find("SUP") != std::string::npos ||
+        target_type_full.find("SUPPORT") != std::string::npos ||
+        target_type_full.find("BREAKAWAY") != std::string::npos ||
+        target_type_full.find("PVA") != std::string::npos;
+
+    const auto active_printer_name_upper = norm_upper(bundle->printers.get_edited_preset().name);
+    const bool active_is_u1 = active_printer_name_upper.find("U1") != std::string::npos;
+    const bool active_is_dual =
+        active_printer_name_upper.find("DUAL") != std::string::npos || active_printer_name_upper.find("J1") != std::string::npos;
+
+    auto find_best = [&](bool require_compatible) {
+        auto best = bundle->filaments.end();
+        int  best_score = std::numeric_limits<int>::min();
+
+        for (auto it = bundle->filaments.begin(); it != bundle->filaments.end(); ++it) {
+            const auto& f = *it;
+            if (require_compatible && !f.is_compatible)
+                continue;
+            if (bundle->filaments.get_preset_base(f) != &f)
+                continue;
+
+            const auto preset_type = norm_upper(f.config.opt_string("filament_type", 0u));
+            const bool type_exact = (preset_type == target_type_full);
+            const bool type_base  = (preset_type == target_type_base);
+            if (!type_exact && !type_base)
+                continue;
+
+            auto* vendor_opt = dynamic_cast<const ConfigOptionStrings*>(f.config.option("filament_vendor"));
+            const std::string preset_vendor =
+                (vendor_opt && !vendor_opt->values.empty()) ? vendor_opt->values[0] : std::string{};
+            const auto preset_vendor_upper = norm_upper(preset_vendor);
+            const auto preset_name_upper   = norm_upper(f.name);
+            const bool preset_support =
+                f.config.opt_bool("filament_is_support", 0u) ||
+                preset_name_upper.find("SUPPORT") != std::string::npos ||
+                preset_name_upper.find("BREAKAWAY") != std::string::npos ||
+                preset_type.find("SUP") != std::string::npos ||
+                preset_type.find("PVA") != std::string::npos;
+
+            int score = 0;
+            if (type_exact)
+                score += 120;
+            else if (type_base)
+                score += 80;
+
+            if (!target_vendor.empty()) {
+                if (preset_vendor_upper == target_vendor)
+                    score += 500;
+                if (boost::starts_with(preset_name_upper, target_vendor + " "))
+                    score += 400;
+                else if (contains_upper(f.name, target_vendor))
+                    score += 150;
+            }
+
+            if (!subtype_hint.empty() && subtype_hint != "NONE" && contains_upper(f.name, subtype_hint))
+                score += 700;
+
+            const bool preset_is_dual = preset_name_upper.find("DUAL") != std::string::npos;
+            const bool hint_requests_dual =
+                target_type_full.find("DUAL") != std::string::npos || subtype_hint.find("DUAL") != std::string::npos;
+            if (preset_is_dual && !hint_requests_dual) {
+                if (active_is_dual)
+                    score += 100;
+                else
+                    score -= 260;
+            }
+            if (active_is_u1) {
+                if (preset_name_upper.find("@U1") != std::string::npos || preset_name_upper.find(" U1") != std::string::npos)
+                    score += 140;
+                if (preset_is_dual && !hint_requests_dual)
+                    score -= 120;
+            }
+
+            if (!target_support_type && preset_support)
+                score -= 1400;
+            if (target_support_type && preset_support)
+                score += 200;
+
+            if (score > best_score) {
+                best_score = score;
+                best = it;
+            }
+        }
+
+        return best;
+    };
+
+    auto best = find_best(true);
+    if (best == bundle->filaments.end())
+        best = find_best(false);
+
+    return best == bundle->filaments.end() ? std::string{} : best->filament_id;
 }
 
 bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
@@ -224,8 +346,13 @@ bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
             tray.tray_type     = combine_filament_type(safe_at(filament_type, i, empty_str),
                                                        safe_at(filament_sub_type, i, empty_str));
             tray.tray_vendor   = safe_at(filament_vendor, i, empty_str);
-            // Keep ID resolution centralized in PresetBundle::sync_ams_list (Snapmaker-only path).
-            tray.tray_info_idx = "";
+            tray.tray_info_idx = resolve_tray_info_idx(tray.tray_vendor, tray.tray_type);
+            if (tray.tray_info_idx.empty()) {
+                auto* bundle = GUI::wxGetApp().preset_bundle;
+                tray.tray_info_idx = bundle
+                    ? bundle->filaments.filament_id_by_type(tray.tray_type)
+                    : map_filament_type_to_generic_id(tray.tray_type);
+            }
             tray.tray_color    = safe_at(filament_color, i, default_color);
 
             // Extract NFC temperature data if available

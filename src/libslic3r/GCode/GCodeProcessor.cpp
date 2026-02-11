@@ -823,10 +823,19 @@ public:
 
             // insert the line for the current step
             if (rev_it != m_lines.rend() && rev_it != start_rev_it && rev_it->times[Normal] != last_time_insertion) {
-                // Skip insertion inside wipe-tower toolchange blocks.
+                // Avoid inserting inside wipe-tower toolchange blocks.
+                // If the selected point is inside a block, move to the nearest
+                // earlier line outside the block instead of dropping preheat.
                 size_t idx = m_lines.size() - 1 - size_t(std::distance(m_lines.rbegin(), rev_it));
                 if (inside_toolchange_block(idx)) {
-                    continue;
+                    size_t adjusted_idx = idx;
+                    while (adjusted_idx > 0 && inside_toolchange_block(adjusted_idx))
+                        --adjusted_idx;
+                    if (inside_toolchange_block(adjusted_idx))
+                        continue;
+                    const size_t adjusted_rev_dist = m_lines.size() - 1 - adjusted_idx;
+                    rev_it = m_lines.rbegin() + adjusted_rev_dist;
+                    idx = adjusted_idx;
                 }
                 if (allow_insert && !allow_insert(idx)) {
                     continue;

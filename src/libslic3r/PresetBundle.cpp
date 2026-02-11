@@ -10,7 +10,6 @@
 #include "libslic3r_version.h"
 
 #include <algorithm>
-#include <limits>
 #include <set>
 #include <fstream>
 #include <unordered_set>
@@ -2370,7 +2369,6 @@ unsigned int PresetBundle::sync_ams_list(std::vector<std::pair<DynamicPrintConfi
         auto filament_multi_color = ams.opt<ConfigOptionStrings>("filament_multi_colour")->values;
         auto ams_id     = ams.opt_string("ams_id", 0u);
         auto slot_id    = ams.opt_string("slot_id", 0u);
-        auto filament_type = ams.opt_string("filament_type", 0u);
         auto is_placeholder = ams.has("filament_slot_placeholder") && ams.opt_bool("filament_slot_placeholder", 0u);
         ams_infos.push_back({filament_id.empty() ? false : true, false, is_placeholder, filament_color});
         AMSMapInfo temp = {ams_id, slot_id};
@@ -2408,11 +2406,12 @@ unsigned int PresetBundle::sync_ams_list(std::vector<std::pair<DynamicPrintConfi
             continue;
         }
         bool has_type = false;
+        auto filament_type = ams.opt_string("filament_type", 0u);
         auto iter = std::find_if(filaments.begin(), filaments.end(), [this, &filament_id, &has_type, filament_type](auto &f) {
             has_type |= f.config.opt_string("filament_type", 0u) == filament_type;
             return f.is_compatible && filaments.get_preset_base(f) == &f && f.filament_id == filament_id; });
         if (iter == filaments.end()) {
-            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": fallback by type for filament_id %1%") % filament_id;
+            BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": filament_id %1% not found or system or compatible") % filament_id;
             if (!filament_type.empty()) {
                 auto original_type = filament_type;
                 filament_type = "Generic " + filament_type;

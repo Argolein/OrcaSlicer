@@ -2,14 +2,11 @@
 #include "Http.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
-#include "slic3r/GUI/DeviceCore/DevManager.h"
 
 #include "nlohmann/json.hpp"
-#include <algorithm>
-#include <boost/algorithm/string.hpp>
-#include <boost/log/trivial.hpp>
 #include <cctype>
 #include <limits>
+#include <boost/log/trivial.hpp>
 
 namespace Slic3r {
 
@@ -22,43 +19,6 @@ template<typename T>
 T safe_at(const std::vector<T>& vec, int index, const T& fallback)
 {
     return (index >= 0 && index < static_cast<int>(vec.size())) ? vec[index] : fallback;
-}
-
-std::string normalize_http_base_url(std::string raw)
-{
-    boost::trim(raw);
-    if (raw.empty())
-        return "";
-
-    if (auto hash = raw.find('#'); hash != std::string::npos)
-        raw = raw.substr(0, hash);
-    if (auto query = raw.find('?'); query != std::string::npos)
-        raw = raw.substr(0, query);
-    boost::trim(raw);
-    if (raw.empty())
-        return "";
-
-    if (!boost::istarts_with(raw, "http://") && !boost::istarts_with(raw, "https://"))
-        raw = "http://" + raw;
-
-    const auto scheme_pos = raw.find("://");
-    if (scheme_pos == std::string::npos)
-        return "";
-    const auto host_begin = scheme_pos + 3;
-    if (host_begin >= raw.size())
-        return "";
-
-    if (auto slash = raw.find('/', host_begin); slash != std::string::npos)
-        raw = raw.substr(0, slash);
-
-    std::string authority = raw.substr(host_begin);
-    boost::trim(authority);
-    if (authority.empty())
-        return "";
-
-    if (raw.size() > 1 && raw.back() == '/')
-        raw.pop_back();
-    return raw;
 }
 
 } // anonymous namespace
@@ -100,161 +60,146 @@ std::string SnapmakerPrinterAgent::resolve_tray_info_idx(const std::string& tray
     if (!bundle)
         return {};
 
-    const auto norm_upper = [](std::string value) { return boost::to_upper_copy(value); };
-    const auto contains_upper = [](const std::string& text, const std::string& needle_upper) {
-        if (needle_upper.empty())
-            return false;
-        return boost::to_upper_copy(text).find(needle_upper) != std::string::npos;
-    };
-
-    const auto target_vendor    = norm_upper(tray_vendor);
-    const auto target_type_full = norm_upper(tray_type);
-    if (target_type_full.empty())
+    const std::string target_vendor = trim_and_upper(tray_vendor);
+    const std::string target_type   = trim_and_upper(tray_type);
+    if (target_type.empty())
         return {};
 
-    std::string target_type_base = target_type_full;
-    std::string subtype_hint;
-    if (auto sep = target_type_full.find(' '); sep != std::string::npos) {
-        target_type_base = target_type_full.substr(0, sep);
-        subtype_hint     = target_type_full.substr(sep + 1);
-        boost::trim(subtype_hint);
-    }
-
-    const bool target_support_type =
-        target_type_full.find("SUP") != std::string::npos ||
-        target_type_full.find("SUPPORT") != std::string::npos ||
-        target_type_full.find("BREAKAWAY") != std::string::npos ||
-        target_type_full.find("PVA") != std::string::npos;
-
-    const auto active_printer_name_upper = norm_upper(bundle->printers.get_edited_preset().name);
-    const bool active_is_u1 = active_printer_name_upper.find("U1") != std::string::npos;
-    const bool active_is_dual =
-        active_printer_name_upper.find("DUAL") != std::string::npos || active_printer_name_upper.find("J1") != std::string::npos;
-
-    auto find_best = [&](bool require_compatible) {
-        auto best = bundle->filaments.end();
-        int  best_score = std::numeric_limits<int>::min();
-
-        for (auto it = bundle->filaments.begin(); it != bundle->filaments.end(); ++it) {
-            const auto& f = *it;
-            if (require_compatible && !f.is_compatible)
-                continue;
-            if (bundle->filaments.get_preset_base(f) != &f)
-                continue;
-
-            const auto preset_type = norm_upper(f.config.opt_string("filament_type", 0u));
-            const bool type_exact = (preset_type == target_type_full);
-            const bool type_base  = (preset_type == target_type_base);
-            if (!type_exact && !type_base)
-                continue;
-
-            auto* vendor_opt = dynamic_cast<const ConfigOptionStrings*>(f.config.option("filament_vendor"));
-            const std::string preset_vendor =
-                (vendor_opt && !vendor_opt->values.empty()) ? vendor_opt->values[0] : std::string{};
-            const auto preset_vendor_upper = norm_upper(preset_vendor);
-            const auto preset_name_upper   = norm_upper(f.name);
-            const bool preset_support =
-                f.config.opt_bool("filament_is_support", 0u) ||
-                preset_name_upper.find("SUPPORT") != std::string::npos ||
-                preset_name_upper.find("BREAKAWAY") != std::string::npos ||
-                preset_type.find("SUP") != std::string::npos ||
-                preset_type.find("PVA") != std::string::npos;
-
-            int score = 0;
-            if (type_exact)
-                score += 120;
-            else if (type_base)
-                score += 80;
-
-            if (!target_vendor.empty()) {
-                if (preset_vendor_upper == target_vendor)
-                    score += 500;
-                if (boost::starts_with(preset_name_upper, target_vendor + " "))
-                    score += 400;
-                else if (contains_upper(f.name, target_vendor))
-                    score += 150;
-            }
-
-            if (!subtype_hint.empty() && subtype_hint != "NONE" && contains_upper(f.name, subtype_hint))
-                score += 700;
-
-            const bool preset_is_dual = preset_name_upper.find("DUAL") != std::string::npos;
-            const bool hint_requests_dual =
-                target_type_full.find("DUAL") != std::string::npos || subtype_hint.find("DUAL") != std::string::npos;
-            if (preset_is_dual && !hint_requests_dual) {
-                if (active_is_dual)
-                    score += 100;
-                else
-                    score -= 260;
-            }
-            if (active_is_u1) {
-                if (preset_name_upper.find("@U1") != std::string::npos || preset_name_upper.find(" U1") != std::string::npos)
-                    score += 140;
-                if (preset_is_dual && !hint_requests_dual)
-                    score -= 120;
-            }
-
-            if (!target_support_type && preset_support)
-                score -= 1400;
-            if (target_support_type && preset_support)
-                score += 200;
-
-            if (score > best_score) {
-                best_score = score;
-                best = it;
+    const auto tokenize_upper_words = [this](const std::string& input) {
+        std::vector<std::string> tokens;
+        std::string current;
+        const std::string text = trim_and_upper(input);
+        for (unsigned char ch : text) {
+            if (std::isalnum(ch)) {
+                current.push_back(static_cast<char>(ch));
+            } else if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
             }
         }
-
-        return best;
+        if (!current.empty())
+            tokens.push_back(current);
+        return tokens;
+    };
+    const auto contains_token = [](const std::vector<std::string>& tokens, const std::string& needle) {
+        for (const auto& token : tokens)
+            if (token == needle)
+                return true;
+        return false;
+    };
+    const auto has_support_token = [&](const std::vector<std::string>& tokens) {
+        return contains_token(tokens, "SUPPORT") || contains_token(tokens, "BREAKAWAY") ||
+               contains_token(tokens, "PVA") || contains_token(tokens, "BVOH") || contains_token(tokens, "HIPS");
     };
 
-    auto best = find_best(true);
-    if (best == bundle->filaments.end())
-        best = find_best(false);
+    const std::vector<std::string> target_type_tokens = tokenize_upper_words(target_type);
+    if (target_type_tokens.empty())
+        return {};
+    const std::vector<std::string> target_vendor_tokens = tokenize_upper_words(target_vendor);
 
-    return best == bundle->filaments.end() ? std::string{} : best->filament_id;
+    const std::string target_base_token = target_type_tokens.front();
+    std::vector<std::string> target_subtype_tokens;
+    for (size_t i = 1; i < target_type_tokens.size(); ++i) {
+        if (target_type_tokens[i] != "NONE")
+            target_subtype_tokens.push_back(target_type_tokens[i]);
+    }
+    const bool target_support = has_support_token(target_type_tokens);
+
+    int         best_score = std::numeric_limits<int>::min();
+    int         best_subtype_hits = 0;
+    bool        best_type_exact = false;
+    bool        best_vendor_match = false;
+    std::string best_id;
+
+    for (const auto& preset : bundle->filaments) {
+        if (!preset.is_compatible || bundle->filaments.get_preset_base(preset) != &preset)
+            continue;
+
+        const std::string preset_type = trim_and_upper(preset.config.opt_string("filament_type", 0u));
+        if (preset_type.empty())
+            continue;
+        const std::string preset_name = trim_and_upper(preset.name);
+        const std::vector<std::string> preset_type_tokens = tokenize_upper_words(preset_type);
+        if (preset_type_tokens.empty())
+            continue;
+        const std::string preset_base_token = preset_type_tokens.front();
+
+        const bool type_exact = preset_type == target_type;
+        const bool type_base  = preset_base_token == target_base_token;
+        if (!type_exact && !type_base)
+            continue;
+
+        std::string preset_vendor_upper;
+        if (auto* vendor_opt = dynamic_cast<const ConfigOptionStrings*>(preset.config.option("filament_vendor"));
+            vendor_opt && !vendor_opt->values.empty()) {
+            preset_vendor_upper = trim_and_upper(vendor_opt->values.front());
+        }
+        const std::vector<std::string> preset_match_tokens = tokenize_upper_words(preset_type + " " + preset_name + " " + preset_vendor_upper);
+        int vendor_token_hits = 0;
+        for (const auto& token : target_vendor_tokens)
+            vendor_token_hits += contains_token(preset_match_tokens, token) ? 1 : 0;
+        const bool vendor_match_exact = !target_vendor.empty() && preset_vendor_upper == target_vendor;
+        const bool vendor_match_partial = !target_vendor_tokens.empty() && vendor_token_hits > 0;
+
+        int subtype_hits = 0;
+        bool all_subtype_tokens_match = !target_subtype_tokens.empty();
+        for (const auto& token : target_subtype_tokens) {
+            const bool hit = contains_token(preset_match_tokens, token);
+            subtype_hits += hit ? 1 : 0;
+            all_subtype_tokens_match = all_subtype_tokens_match && hit;
+        }
+
+        const bool preset_support = preset.config.opt_bool("filament_is_support", 0u) || has_support_token(preset_match_tokens);
+
+        int score = 0;
+        score += type_exact ? 10000 : 6000;
+        if (vendor_match_exact)
+            score += 2200;
+        else if (vendor_match_partial)
+            score += 1200 + vendor_token_hits * 150;
+        if (all_subtype_tokens_match)
+            score += 1800;
+        else
+            score += subtype_hits * 400;
+        if (!target_subtype_tokens.empty() && subtype_hits == 0)
+            score -= 700;
+        score += (target_support == preset_support) ? 250 : -1200;
+
+        // Penalize specialty variants unless the target hints at them.
+        for (const char* specialty : {"CF", "GF", "ESD", "RCF", "SILK"}) {
+            const std::string token = specialty;
+            if (contains_token(preset_match_tokens, token) && !contains_token(target_type_tokens, token))
+                score -= 250;
+        }
+
+        if (score > best_score) {
+            best_score = score;
+            best_subtype_hits = subtype_hits;
+            best_type_exact = type_exact;
+            best_vendor_match = vendor_match_exact || vendor_match_partial;
+            best_id    = preset.filament_id;
+        }
+    }
+
+    // If the tray declares a subtype (e.g. PolyLite / PolySonic), do not force a weak "best match"
+    // that only matches on base type. Let caller fall back to a safe generic profile.
+    if (!best_id.empty() && !target_subtype_tokens.empty() && !best_type_exact && best_subtype_hits == 0)
+        return {};
+    if (!best_id.empty() && !target_vendor_tokens.empty() && !best_vendor_match && !best_type_exact)
+        return {};
+
+    return best_id;
 }
 
 bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
 {
-    auto resolve_sync_base_url = [&](const std::string& target_dev_id) {
-        std::vector<std::string> candidates;
-        candidates.push_back(device_info.base_url);
-
-        if (auto* dev = GUI::wxGetApp().getDeviceManager()) {
-            if (!target_dev_id.empty()) {
-                if (auto* obj = dev->get_my_machine(target_dev_id); obj)
-                    candidates.push_back(obj->get_dev_ip());
-                if (auto* obj = dev->get_local_machine(target_dev_id); obj)
-                    candidates.push_back(obj->get_dev_ip());
-            }
-            if (auto* obj = dev->get_selected_machine())
-                candidates.push_back(obj->get_dev_ip());
-        }
-
+    std::string base_url = device_info.base_url;
+    if (base_url.empty() && !dev_id.empty()) {
         if (auto* app_cfg = GUI::wxGetApp().app_config) {
-            if (!target_dev_id.empty()) {
-                const auto ip = app_cfg->get("ip_address", target_dev_id);
-                if (!ip.empty())
-                    candidates.push_back(ip);
-            }
+            base_url = app_cfg->get("ip_address", dev_id);
         }
-
-        if (auto* preset_bundle = GUI::wxGetApp().preset_bundle) {
-            const auto& cfg = preset_bundle->printers.get_edited_preset().config;
-            candidates.push_back(cfg.opt_string("print_host"));
-            candidates.push_back(cfg.opt_string("print_host_webui"));
-        }
-
-        for (const auto& candidate : candidates) {
-            auto normalized = normalize_http_base_url(candidate);
-            if (!normalized.empty())
-                return normalized;
-        }
-        return std::string{};
-    };
-
-    const std::string base_url = resolve_sync_base_url(dev_id);
+    }
+    base_url = normalize_base_url(base_url, "");
     if (base_url.empty()) {
         BOOST_LOG_TRIVIAL(warning) << "SnapmakerPrinterAgent::fetch_filament_info: cannot resolve base_url"
                                    << ", device_info.base_url='" << device_info.base_url
@@ -262,8 +207,7 @@ bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
         return false;
     }
 
-    // Query only print_task_config for robust cross-firmware behavior.
-    std::string url = join_url(base_url, "/printer/objects/query?print_task_config");
+    std::string url = join_url(base_url, "/printer/objects/query?print_task_config&filament_detect");
 
     std::string response_body;
     bool        success = false;
@@ -348,10 +292,20 @@ bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
             tray.tray_vendor   = safe_at(filament_vendor, i, empty_str);
             tray.tray_info_idx = resolve_tray_info_idx(tray.tray_vendor, tray.tray_type);
             if (tray.tray_info_idx.empty()) {
-                auto* bundle = GUI::wxGetApp().preset_bundle;
-                tray.tray_info_idx = bundle
-                    ? bundle->filaments.filament_id_by_type(tray.tray_type)
-                    : map_filament_type_to_generic_id(tray.tray_type);
+                std::string base_type = tray.tray_type;
+                if (auto sep = base_type.find(' '); sep != std::string::npos)
+                    base_type = base_type.substr(0, sep);
+
+                // Prefer a stable generic fallback over a weak vendor/profile guess.
+                const std::string generic_id = map_filament_type_to_generic_id(base_type);
+                if (!generic_id.empty() && generic_id != UNKNOWN_FILAMENT_ID) {
+                    tray.tray_info_idx = generic_id;
+                } else {
+                    auto* bundle = GUI::wxGetApp().preset_bundle;
+                    tray.tray_info_idx = bundle
+                        ? bundle->filaments.filament_id_by_type(base_type)
+                        : map_filament_type_to_generic_id(base_type);
+                }
             }
             tray.tray_color    = safe_at(filament_color, i, default_color);
 

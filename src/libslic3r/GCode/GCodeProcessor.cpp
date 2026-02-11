@@ -1536,7 +1536,9 @@ void GCodeProcessor::run_post_process()
                         return line;
                     },
                     allow_insert,
-                    override_temp > 0
+                    // If backtracing can't find a valid insertion point (e.g. dense recurring toolchanges),
+                    // still force one at the earliest allowed line after the last switch-away point.
+                    true
                 );
             }
         }

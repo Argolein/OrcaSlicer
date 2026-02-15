@@ -27,11 +27,11 @@ static GLCanvas3D::WipeTowerInfo get_wipe_tower(const Plater &plater, int plate_
     return plater.canvas3D()->get_wipe_tower_info(plate_idx);
 }
 
-arrangement::ArrangePolygon estimate_wipe_tower_info(int plate_index, std::set<int>& extruder_ids);
+arrangement::ArrangePolygon estimate_wipe_tower_info(int plate_index, int extruder_size);
 
-arrangement::ArrangePolygon get_wipetower_arrange_poly(int plate_idx, std::set<int>& extruder_ids)
+arrangement::ArrangePolygon get_wipetower_arrange_poly(int plate_idx, int extruder_size)
 {
-    ArrangePolygon ap = estimate_wipe_tower_info(plate_idx, extruder_ids);
+    ArrangePolygon ap = estimate_wipe_tower_info(plate_idx, extruder_size);
     ap.bed_idx = 0;
     ap.setter = NULL; // do not move wipe tower
     ++ap.priority;
@@ -215,15 +215,12 @@ void ArrangeJob::prepare_all() {
     plate_list.preprocess_exclude_areas(m_unselected, enable_wrapping, MAX_NUM_PLATES);
 }
 
-arrangement::ArrangePolygon estimate_wipe_tower_info(int plate_index, std::set<int>& extruder_ids)
+arrangement::ArrangePolygon estimate_wipe_tower_info(int plate_index, int extruder_size)
 {
     PartPlateList& ppl = wxGetApp().plater()->get_partplate_list();
     const auto& full_config = wxGetApp().preset_bundle->full_config();
     int plate_count = ppl.get_plate_count();
     int plate_index_valid = std::min(plate_index, plate_count - 1);
-
-    // we have to estimate the depth using the extruder number of all plates
-    int extruder_size = extruder_ids.size();
 
     Vec3d wipe_tower_size, wipe_tower_pos;
     int nozzle_nums = wxGetApp().preset_bundle->get_printer_extruder_count();
@@ -306,7 +303,7 @@ void ArrangeJob::prepare_wipe_tower()
         if(bedid<plate_count && pl->is_locked())
             continue;
         if (auto wti = get_wipe_tower(*m_plater, bedid)) {
-            wipe_tower_ap = get_wipetower_arrange_poly(bedid, extruder_ids);
+            wipe_tower_ap = get_wipetower_arrange_poly(bedid, int(extruder_ids.size()));
             wipe_tower_ap.bed_idx = bedid_unlocked;
             m_unselected.emplace_back(wipe_tower_ap);
         }
@@ -316,7 +313,7 @@ void ArrangeJob::prepare_wipe_tower()
                 extruder_ids.clear();
                 extruder_ids.insert(plate_extruders.begin(), plate_extruders.end());
             }
-            wipe_tower_ap = estimate_wipe_tower_info(bedid, extruder_ids);
+            wipe_tower_ap = estimate_wipe_tower_info(bedid, int(extruder_ids.size()));
             wipe_tower_ap.bed_idx = bedid_unlocked;
             m_unselected.emplace_back(wipe_tower_ap);
         }
@@ -381,7 +378,7 @@ void ArrangeJob::prepare_partplate() {
     // BBS
     if (auto wti = get_wipe_tower(*m_plater, current_plate_index)) {
         auto extruder_ids = plate->get_extruders(true);
-        ArrangePolygon&& ap = get_wipetower_arrange_poly(current_plate_index, extruder_ids);
+        ArrangePolygon&& ap = get_wipetower_arrange_poly(current_plate_index, int(extruder_ids.size()));
         m_unselected.emplace_back(std::move(ap));
     }
 
@@ -704,7 +701,7 @@ get_wipe_tower_arrangepoly(const Plater &plater)
     if (auto wti = get_wipe_tower(plater, id)) {
         PartPlateList& ppl = wxGetApp().plater()->get_partplate_list();
         auto extruder_ids = ppl.get_plate(id)->get_extruders(true);
-        return get_wipetower_arrange_poly(id, extruder_ids);
+        return get_wipetower_arrange_poly(id, int(extruder_ids.size()));
     }
 
     return {};

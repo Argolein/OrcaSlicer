@@ -9508,7 +9508,7 @@ void DynamicPrintConfig::update_non_diff_values_to_base_config(DynamicPrintConfi
     for (auto& opt : keys) {
         ConfigOption *opt_src = this->option(opt);
         const ConfigOption *opt_target = new_config.option(opt);
-        if (opt_src && opt_target && (*opt_src != *opt_target)) {
+        if (opt_src && opt_target && opt_src->type() == opt_target->type() && (*opt_src != *opt_target)) {
             BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(" change key %1% from old_value %2% to inherit's value %3%")
                     %opt %(opt_src->serialize()) %(opt_target->serialize());
             if (different_keys.find(opt) == different_keys.end()) {
@@ -9656,7 +9656,8 @@ void DynamicPrintConfig::update_diff_values_to_child_config(DynamicPrintConfig& 
 void compute_filament_override_value(const std::string& opt_key, const ConfigOption *opt_old_machine, const ConfigOption *opt_new_machine, const ConfigOption *opt_new_filament, const DynamicPrintConfig& new_full_config,
     t_config_option_keys& diff_keys, DynamicPrintConfig& filament_overrides, std::vector<int>& f_maps)
 {
-    bool is_nil = opt_new_filament->is_nil();
+    if (opt_new_filament == nullptr || opt_new_filament->is_nil())
+        return;
 
     // ugly code, for these params, we should ignore the value in filament params
     ConfigOptionBoolsNullable opt_long_retraction_default;
@@ -9675,16 +9676,21 @@ void compute_filament_override_value(const std::string& opt_key, const ConfigOpt
         opt_new_filament = &opt_retraction_distance_default;
     }
 
+    bool overriden = opt_new_machine->overriden_by(opt_new_filament);
+
     auto opt_copy = opt_new_machine->clone();
     opt_copy->apply_override(opt_new_filament, f_maps);
-    bool changed = *opt_old_machine != *opt_copy;
+    bool changed = true;
+    if (opt_old_machine && opt_old_machine->type() == opt_copy->type())
+        changed = *opt_old_machine != *opt_copy;
 
-    if (changed) {
+    if (changed)
         diff_keys.emplace_back(opt_key);
+    if (changed || overriden) {
         filament_overrides.set_key_value(opt_key, opt_copy);
-    }
-    else
+    } else {
         delete opt_copy;
+    }
 }
 
 

@@ -1191,12 +1191,13 @@ static size_t get_id_from_opt_key(std::string opt_key)
 static wxString get_full_label(std::string opt_key, const DynamicPrintConfig& config)
 {
     opt_key = get_pure_opt_key(opt_key);
-    auto option = config.option(opt_key);
-
-    if (!option || option->is_nil())
+    const ConfigOption *raw_opt = config.option(opt_key);
+    if (raw_opt == nullptr || raw_opt->is_nil())
         return _L("N/A");
 
     const ConfigOptionDef* opt = config.def()->get(opt_key);
+    if (opt == nullptr)
+        return from_u8(opt_key);
     return opt->full_label.empty() ? opt->label : opt->full_label;
 }
 
@@ -1212,18 +1213,25 @@ static wxString get_string_value(std::string opt_key, const DynamicPrintConfig& 
     }
     opt_idx = orig_opt_idx >= 0 ? orig_opt_idx : 0;
     opt_key = get_pure_opt_key(opt_key);
-    auto option = config.option(opt_key);
-    if (!option) {
+    const ConfigOption *raw_opt = config.option(opt_key);
+    if (raw_opt == nullptr)
         return _L("N/A");
-    }
 
-    if (option->is_scalar() && config.option(opt_key)->is_nil() ||
-        option->is_vector() && dynamic_cast<const ConfigOptionVectorBase *>(config.option(opt_key))->is_nil(opt_idx))
+    if (raw_opt->is_scalar() && raw_opt->is_nil())
         return _L("N/A");
+    if (raw_opt->is_vector()) {
+        const auto *vec_opt = dynamic_cast<const ConfigOptionVectorBase *>(raw_opt);
+        if (vec_opt != nullptr && vec_opt->is_nil(opt_idx))
+            return _L("N/A");
+    }
 
     wxString out;
 
     const ConfigOptionDef* opt = config.def()->get(opt_key);
+    if (opt == nullptr)
+        return from_u8(raw_opt->serialize());
+    if (raw_opt->type() != opt->type)
+        return from_u8(raw_opt->serialize());
     bool is_nullable = opt->nullable;
 
     switch (opt->type) {

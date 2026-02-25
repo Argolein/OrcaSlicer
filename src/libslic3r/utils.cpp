@@ -2,6 +2,7 @@
 #include "I18N.hpp"
 
 #include <atomic>
+#include <cstdlib>
 #include <locale>
 #include <ctime>
 #include <cstdarg>
@@ -345,7 +346,7 @@ void set_log_path_and_level(const std::string& file, unsigned int level)
 	//BBS log file at C:\\Users\\[yourname]\\AppData\\Roaming\\OrcaSlicer\\log\\[log_filename].log
 	auto log_folder = boost::filesystem::path(g_data_dir) / "log";
 	if (!boost::filesystem::exists(log_folder)) {
-		boost::filesystem::create_directory(log_folder);
+		boost::filesystem::create_directories(log_folder);
 	}
 	auto full_path = (log_folder / file).make_preferred();
 

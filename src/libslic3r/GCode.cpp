@@ -1453,82 +1453,152 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
         return gcode_out;
     }
 
-    std::string WipeTowerIntegration::prime(GCode &gcodegen)
-    {
-        std::string gcode;
-        if (!gcodegen.is_BBL_Printer() && !gcodegen.is_QIDI_Printer()) {
-            for (const WipeTower::ToolChangeResult &tcr : m_priming) {
-                if (!tcr.extrusions.empty())
-                    gcode += append_tcr2(gcodegen, tcr, tcr.new_tool);
+std::string WipeTowerIntegration::prime(GCode &gcodegen)
+{
+    std::string gcode;
+    if (!gcodegen.is_BBL_Printer() && !gcodegen.is_QIDI_Printer()) {
+        for (const WipeTower::ToolChangeResult &tcr : m_priming) {
+            if (!tcr.extrusions.empty())
+                gcode += append_tcr2(gcodegen, tcr, tcr.new_tool);
+        }
+    }
+    return gcode;
+}
+
+std::string WipeTowerIntegration::tool_change(GCode &gcodegen, int extruder_id, bool finish_layer, bool local_z_unplanned)
+{
+    std::string gcode;
+
+    auto emit_local_z_unplanned_toolchange = [&]() -> std::string {
+        if (extruder_id < 0 || !gcodegen.writer().need_toolchange(extruder_id))
+            return "";
+
+        auto pick_toolchange_template_from_layer =
+            [&](int layer_idx) -> const WipeTower::ToolChangeResult* {
+            if (layer_idx < 0 || layer_idx >= int(m_tool_changes.size()))
+                return nullptr;
+            const auto& layer_changes = m_tool_changes[layer_idx];
+            for (const WipeTower::ToolChangeResult& candidate : layer_changes) {
+                if (candidate.initial_tool != candidate.new_tool)
+                    return &candidate;
+            }
+            return nullptr;
+        };
+
+        // Prefer a real toolchange template (initial_tool != new_tool). Using "empty grid"
+        // / finish-layer templates here can suppress [change_filament_gcode] injection and
+        // produce no actual emitted T-change.
+        const WipeTower::ToolChangeResult* template_tcr = nullptr;
+        if (m_layer_idx >= 0 && m_layer_idx < int(m_tool_changes.size()))
+            template_tcr = pick_toolchange_template_from_layer(m_layer_idx);
+        if (template_tcr == nullptr) {
+            const int start_back = std::min<int>(m_layer_idx - 1, int(m_tool_changes.size()) - 1);
+            for (int back = start_back; back >= 0; --back) {
+                template_tcr = pick_toolchange_template_from_layer(back);
+                if (template_tcr != nullptr)
+                    break;
             }
         }
+        if (template_tcr == nullptr) {
+            const int start_fwd = std::max<int>(m_layer_idx + 1, 0);
+            for (int fwd = start_fwd; fwd < int(m_tool_changes.size()); ++fwd) {
+                template_tcr = pick_toolchange_template_from_layer(fwd);
+                if (template_tcr != nullptr)
+                    break;
+            }
+        }
+
+        if (template_tcr == nullptr) {
+            BOOST_LOG_TRIVIAL(warning) << "Wipe tower local-z unplanned toolchange fallback unavailable (no real template),"
+                                       << " using raw toolchange"
+                                       << " layer_idx=" << m_layer_idx
+                                       << " extruder_id=" << extruder_id;
+            return gcodegen.set_extruder(unsigned(extruder_id),
+                                         gcodegen.writer().get_position().z() - gcodegen.config().z_offset.value);
+        }
+
+        WipeTower::ToolChangeResult tcr = *template_tcr;
+        tcr.initial_tool = gcodegen.writer().extruder() ? int(gcodegen.writer().extruder()->id()) : extruder_id;
+        tcr.new_tool     = extruder_id;
+        tcr.print_z      = float(gcodegen.writer().get_position().z() - gcodegen.config().z_offset.value);
+        tcr.priming      = false;
+        tcr.force_travel = true;
+
+        BOOST_LOG_TRIVIAL(debug) << "Wipe tower local-z unplanned toolchange emitted"
+                                 << " layer_idx=" << m_layer_idx
+                                 << " extruder_id=" << extruder_id
+                                 << " tool_change_idx=" << m_tool_change_idx;
+        std::string out;
+        out += "; local-z unplanned wipe-tower toolchange begin\n";
+        out += append_tcr2(gcodegen, tcr, extruder_id);
+        out += "; local-z unplanned wipe-tower toolchange end\n";
+        return out;
+    };
+
+    if (local_z_unplanned)
+        return emit_local_z_unplanned_toolchange();
+
+    assert(m_layer_idx >= 0);
+    if (m_layer_idx >= (int)m_tool_changes.size())
         return gcode;
-    }
 
-    std::string WipeTowerIntegration::tool_change(GCode &gcodegen, int extruder_id, bool finish_layer)
-    {
-        std::string gcode;
-
-        assert(m_layer_idx >= 0);
-        if (m_layer_idx >= (int) m_tool_changes.size())
-            return gcode;
-        if (!gcodegen.is_BBL_Printer() && !gcodegen.is_QIDI_Printer()) {
-            if (gcodegen.writer().need_toolchange(extruder_id) || finish_layer) {
-                if (m_layer_idx < (int) m_tool_changes.size()) {
-                    if (!(size_t(m_tool_change_idx) < m_tool_changes[m_layer_idx].size()))
-                        throw Slic3r::RuntimeError("Wipe tower generation failed, possibly due to empty first layer.");
-
-                    // Calculate where the wipe tower layer will be printed. -1 means that print z will not change,
-                    // resulting in a wipe tower with sparse layers.
-                    double wipe_tower_z  = -1;
-                    bool   ignore_sparse = false;
-                    if (gcodegen.config().wipe_tower_no_sparse_layers.value) {
-                        wipe_tower_z  = m_last_wipe_tower_print_z;
-                        ignore_sparse = (m_tool_changes[m_layer_idx].size() == 1 &&
-                                         m_tool_changes[m_layer_idx].front().initial_tool == m_tool_changes[m_layer_idx].front().new_tool &&
-                                         m_layer_idx != 0);
-                        if (m_tool_change_idx == 0 && !ignore_sparse)
-                        wipe_tower_z = m_last_wipe_tower_print_z + m_tool_changes[m_layer_idx].front().layer_height;
-                    }
-
-                    if (!ignore_sparse) {
-                        gcode += append_tcr2(gcodegen, m_tool_changes[m_layer_idx][m_tool_change_idx++], extruder_id, wipe_tower_z);
-                        m_last_wipe_tower_print_z = wipe_tower_z;
-                    }
-                }
-            }
-        } else {
-            // Calculate where the wipe tower layer will be printed. -1 means that print z will not change,
-            // resulting in a wipe tower with sparse layers.
-            double wipe_tower_z  = -1;
-            bool   ignore_sparse = false;
-            if (gcodegen.config().wipe_tower_no_sparse_layers.value) {
-                wipe_tower_z  = m_last_wipe_tower_print_z;
-                ignore_sparse = (m_tool_changes[m_layer_idx].size() == 1 &&
-                                 m_tool_changes[m_layer_idx].front().initial_tool == m_tool_changes[m_layer_idx].front().new_tool);
-                if (m_tool_change_idx == 0 && !ignore_sparse)
-                    wipe_tower_z = m_last_wipe_tower_print_z + m_tool_changes[m_layer_idx].front().layer_height;
-            }
-
-            if ((m_enable_timelapse_print || m_enable_wrapping_detection) && m_is_first_print) {
-                gcode += append_tcr(gcodegen, m_tool_changes[m_layer_idx][0], m_tool_changes[m_layer_idx][0].new_tool, wipe_tower_z);
-                m_tool_change_idx++;
-                m_is_first_print = false;
-            }
-
-            if (gcodegen.writer().need_toolchange(extruder_id) || finish_layer) {
+    if (!gcodegen.is_BBL_Printer() && !gcodegen.is_QIDI_Printer()) {
+        if (gcodegen.writer().need_toolchange(extruder_id) || finish_layer) {
+            if (m_layer_idx < (int)m_tool_changes.size()) {
                 if (!(size_t(m_tool_change_idx) < m_tool_changes[m_layer_idx].size()))
                     throw Slic3r::RuntimeError("Wipe tower generation failed, possibly due to empty first layer.");
 
+                // Calculate where the wipe tower layer will be printed. -1 means that print z will not change,
+                // resulting in a wipe tower with sparse layers.
+                double wipe_tower_z  = -1;
+                bool   ignore_sparse = false;
+                if (gcodegen.config().wipe_tower_no_sparse_layers.value) {
+                    wipe_tower_z  = m_last_wipe_tower_print_z;
+                    ignore_sparse = (m_tool_changes[m_layer_idx].size() == 1 &&
+                                     m_tool_changes[m_layer_idx].front().initial_tool == m_tool_changes[m_layer_idx].front().new_tool &&
+                                     m_layer_idx != 0);
+                    if (m_tool_change_idx == 0 && !ignore_sparse)
+                        wipe_tower_z = m_last_wipe_tower_print_z + m_tool_changes[m_layer_idx].front().layer_height;
+                }
+
                 if (!ignore_sparse) {
-                    gcode += append_tcr(gcodegen, m_tool_changes[m_layer_idx][m_tool_change_idx++], extruder_id, wipe_tower_z);
+                    gcode += append_tcr2(gcodegen, m_tool_changes[m_layer_idx][m_tool_change_idx++], extruder_id, wipe_tower_z);
                     m_last_wipe_tower_print_z = wipe_tower_z;
                 }
             }
         }
+    } else {
+        // Calculate where the wipe tower layer will be printed. -1 means that print z will not change,
+        // resulting in a wipe tower with sparse layers.
+        double wipe_tower_z  = -1;
+        bool   ignore_sparse = false;
+        if (gcodegen.config().wipe_tower_no_sparse_layers.value) {
+            wipe_tower_z  = m_last_wipe_tower_print_z;
+            ignore_sparse = (m_tool_changes[m_layer_idx].size() == 1 &&
+                             m_tool_changes[m_layer_idx].front().initial_tool == m_tool_changes[m_layer_idx].front().new_tool);
+            if (m_tool_change_idx == 0 && !ignore_sparse)
+                wipe_tower_z = m_last_wipe_tower_print_z + m_tool_changes[m_layer_idx].front().layer_height;
+        }
 
-        return gcode;
+        if ((m_enable_timelapse_print || m_enable_wrapping_detection) && m_is_first_print) {
+            gcode += append_tcr(gcodegen, m_tool_changes[m_layer_idx][0], m_tool_changes[m_layer_idx][0].new_tool, wipe_tower_z);
+            m_tool_change_idx++;
+            m_is_first_print = false;
+        }
+
+        if (gcodegen.writer().need_toolchange(extruder_id) || finish_layer) {
+            if (!(size_t(m_tool_change_idx) < m_tool_changes[m_layer_idx].size()))
+                throw Slic3r::RuntimeError("Wipe tower generation failed, possibly due to empty first layer.");
+
+            if (!ignore_sparse) {
+                gcode += append_tcr(gcodegen, m_tool_changes[m_layer_idx][m_tool_change_idx++], extruder_id, wipe_tower_z);
+                m_last_wipe_tower_print_z = wipe_tower_z;
+            }
+        }
     }
+
+    return gcode;
+}
 
     bool WipeTowerIntegration::is_empty_wipe_tower_gcode(GCode &gcodegen, int extruder_id, bool finish_layer)
     {
@@ -5225,7 +5295,9 @@ LayerResult GCode::process_layer(
         std::vector<LocalZPassBucket> pass_buckets;
     };
 
-    const bool local_z_perimeter_runtime_supported = !has_wipe_tower && !is_anything_overridden;
+    // Local-Z phase-b can run with wipe tower enabled, but wiping-overrides remain unsupported
+    // because that flow emits a separate purge/print pass that is not Local-Z aware yet.
+    const bool local_z_perimeter_runtime_supported = !is_anything_overridden;
     bool       local_z_phase_b_requested_for_layer = false;
     std::vector<LocalZLayerContext> local_z_layer_contexts;
     std::vector<std::unique_ptr<ExtrusionEntityCollection>> local_z_clipped_collections;
@@ -5375,7 +5447,7 @@ LayerResult GCode::process_layer(
                                    << " print_z=" << print_z
                                    << " wipe_tower=" << has_wipe_tower
                                    << " wiping_overrides=" << is_anything_overridden;
-        gcode += "; local-z perimeter phase-b disabled for this layer (wipe tower or wiping overrides active)\n";
+        gcode += "; local-z perimeter phase-b disabled for this layer (wiping overrides active)\n";
     } else if (local_z_phase_b_requested_for_layer && !local_z_perimeter_phase_b_enabled) {
         BOOST_LOG_TRIVIAL(warning) << "Local-Z phase-b requested but no eligible contexts"
                                    << " print_z=" << print_z
@@ -5912,6 +5984,9 @@ LayerResult GCode::process_layer(
     }
 
     if (!local_z_pass_refs.empty()) {
+        const int local_z_phase_b_start_extruder =
+            (has_wipe_tower && m_writer.extruder() != nullptr) ? int(m_writer.extruder()->id()) : -1;
+        bool local_z_phase_b_changed_extruder = false;
         BOOST_LOG_TRIVIAL(info) << "Local-Z phase-b emitting"
                                 << " print_z=" << print_z
                                 << " perimeter_passes=" << local_z_pass_refs.size();
@@ -5945,7 +6020,13 @@ LayerResult GCode::process_layer(
                 if (objects_by_extruder.empty())
                     continue;
 
-                gcode += this->set_extruder(local_extruder_id, pass_plan.print_z);
+                if (has_wipe_tower && m_writer.need_toolchange(local_extruder_id))
+                    local_z_phase_b_changed_extruder = true;
+                if (has_wipe_tower && m_wipe_tower) {
+                    gcode += m_wipe_tower->tool_change(*this, int(local_extruder_id), false, true);
+                } else {
+                    gcode += this->set_extruder(local_extruder_id, pass_plan.print_z);
+                }
                 if (std::abs(m_writer.get_position().z() - pass_z) > EPSILON) {
                     BOOST_LOG_TRIVIAL(warning) << "Local-Z pass z restore"
                                                << " print_z=" << print_z
@@ -5991,6 +6072,27 @@ LayerResult GCode::process_layer(
             }
             m_nominal_z   = saved_nominal_z;
             m_last_layer_z = saved_last_layer_z;
+        }
+
+        // Keep wipe tower planning synchronized with the normal per-layer extruder loop:
+        // Local-Z may do extra toolchanges, but wipe tower was planned against the layer loop order.
+        // Restore the pre-pass tool so wipe tower tool_change() consumes the expected sequence.
+        if (has_wipe_tower && local_z_phase_b_changed_extruder) {
+            if (local_z_phase_b_start_extruder >= 0 &&
+                m_writer.need_toolchange(static_cast<unsigned int>(local_z_phase_b_start_extruder))) {
+                BOOST_LOG_TRIVIAL(debug) << "Local-Z phase-b restoring pre-pass extruder for wipe tower"
+                                         << " print_z=" << print_z
+                                         << " restore_extruder=" << local_z_phase_b_start_extruder;
+                gcode += "; local-z phase-b restore pre-pass extruder for wipe tower\n";
+                if (m_wipe_tower) {
+                    gcode += m_wipe_tower->tool_change(*this, local_z_phase_b_start_extruder, false, true);
+                } else {
+                    gcode += this->set_extruder(static_cast<unsigned int>(local_z_phase_b_start_extruder), print_z);
+                }
+            } else if (local_z_phase_b_start_extruder < 0) {
+                BOOST_LOG_TRIVIAL(warning) << "Local-Z phase-b cannot restore pre-pass extruder (undefined writer state)"
+                                           << " print_z=" << print_z;
+            }
         }
 
         const double nominal_layer_z = print_z + m_config.z_offset.value;
@@ -6043,7 +6145,7 @@ LayerResult GCode::process_layer(
                     gcode += insert_wrapping_detection_gcode();
                     has_insert_wrapping_detection_gcode = true;
                 }
-                gcode_toolchange = m_wipe_tower->tool_change(*this, extruder_id, extruder_id == layer_extruders.back());
+                gcode_toolchange = m_wipe_tower->tool_change(*this, extruder_id, extruder_id == layer_extruders.back(), false);
             }
         } else {
             if (need_insert_timelapse_gcode_for_traditional &&

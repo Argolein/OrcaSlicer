@@ -623,7 +623,7 @@ void Preset::save(DynamicPrintConfig* parent_config)
             if (opt_dst->is_scalar() || !(opt_dst->nullable()))
                 opt_dst->set(opt_src);
             else {
-                ConfigOptionVectorBase* opt_vec_src = static_cast<ConfigOptionVectorBase*>(opt_src);
+                const ConfigOptionVectorBase* opt_vec_src = static_cast<const ConfigOptionVectorBase*>(opt_src);
                 ConfigOptionVectorBase* opt_vec_dst = static_cast<ConfigOptionVectorBase*>(opt_dst);
                 ConfigOptionVectorBase* opt_vec_inherit = static_cast<ConfigOptionVectorBase*>(parent_config->option(option));
                 if (opt_vec_src->size() == 1)
@@ -1484,7 +1484,7 @@ Preset* PresetCollection::get_preset_differed_for_save(Preset& preset)
             if (opt_dst->is_scalar() || !(opt_dst->nullable()))
                 opt_dst->set(opt_src);
             else {
-                ConfigOptionVectorBase* opt_vec_src = static_cast<ConfigOptionVectorBase*>(opt_src);
+                const ConfigOptionVectorBase* opt_vec_src = static_cast<const ConfigOptionVectorBase*>(opt_src);
                 ConfigOptionVectorBase* opt_vec_dst = static_cast<ConfigOptionVectorBase*>(opt_dst);
                 ConfigOptionVectorBase* opt_vec_inherit = static_cast<ConfigOptionVectorBase*>(parent_preset->config.option(option));
                 if (opt_vec_src->size() == 1)

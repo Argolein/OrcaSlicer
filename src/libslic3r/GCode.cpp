@@ -1518,7 +1518,7 @@ std::string WipeTowerIntegration::tool_change(GCode &gcodegen, int extruder_id, 
         }
 
         WipeTower::ToolChangeResult tcr = *template_tcr;
-        tcr.initial_tool = gcodegen.writer().extruder() ? int(gcodegen.writer().extruder()->id()) : extruder_id;
+        tcr.initial_tool = gcodegen.writer().filament() ? int(gcodegen.writer().filament()->id()) : extruder_id;
         tcr.new_tool     = extruder_id;
         tcr.print_z      = float(gcodegen.writer().get_position().z() - gcodegen.config().z_offset.value);
         tcr.priming      = false;
@@ -5985,7 +5985,7 @@ LayerResult GCode::process_layer(
 
     if (!local_z_pass_refs.empty()) {
         const int local_z_phase_b_start_extruder =
-            (has_wipe_tower && m_writer.extruder() != nullptr) ? int(m_writer.extruder()->id()) : -1;
+            (has_wipe_tower && m_writer.filament() != nullptr) ? int(m_writer.filament()->id()) : -1;
         bool local_z_phase_b_changed_extruder = false;
         BOOST_LOG_TRIVIAL(info) << "Local-Z phase-b emitting"
                                 << " print_z=" << print_z

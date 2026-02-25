@@ -738,7 +738,6 @@ public:
                                                        EnforcerBlockerType max_type,
                                                        EnforcerBlockerType to_delete_filament = EnforcerBlockerType::NONE,
                                                        EnforcerBlockerType replace_filament = EnforcerBlockerType::NONE);
-                                                       EnforcerBlockerType replace_filament   = EnforcerBlockerType::NONE);
     void                 remap_enforcer_block_types(const ModelVolume& mv,
                                                     EnforcerBlockerType max_type,
                                                     const EnforcerBlockerStateMap &state_map);

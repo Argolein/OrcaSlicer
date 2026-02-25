@@ -1549,14 +1549,20 @@ void MenuFactory::create_filament_action_menu(bool init, int active_filament_men
     if (item_id != wxNOT_FOUND)
         menu->Destroy(item_id);
 
-    wxMenu* sub_menu = new wxMenu();
-    std::vector<wxBitmap*> icons = get_extruder_color_icons(true);
-    int filaments_cnt = Sidebar::should_show_SEMM_buttons() ? icons.size() : 0;
+    wxMenu *                       sub_menu          = new wxMenu();
+    std::vector<wxBitmap *>        icons             = get_extruder_color_icons(true);
+    const std::vector<std::string> &filament_presets = wxGetApp().preset_bundle->filament_presets;
+    int                             filaments_cnt     = 0;
+    if (Sidebar::should_show_SEMM_buttons()) {
+        filaments_cnt = std::max(wxGetApp().filaments_cnt(), 0);
+        filaments_cnt = std::min(filaments_cnt, static_cast<int>(icons.size()));
+        filaments_cnt = std::min(filaments_cnt, static_cast<int>(filament_presets.size()));
+    }
     for (int i = 0; i < filaments_cnt; i++) {
         if (i == active_filament_menu_id)
             continue;
 
-        auto preset = wxGetApp().preset_bundle->filaments.find_preset(wxGetApp().preset_bundle->filament_presets[i]);
+        auto preset = wxGetApp().preset_bundle->filaments.find_preset(filament_presets[i]);
         wxString item_name = preset ? from_u8(preset->label(false)) : wxString::Format(_L("Filament %d"), i + 1);
 
         append_menu_item(sub_menu, wxID_ANY, item_name, "",

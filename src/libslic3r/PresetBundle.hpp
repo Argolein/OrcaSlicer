@@ -4,6 +4,7 @@
 #include "Preset.hpp"
 #include "AppConfig.hpp"
 #include "enum_bitmask.hpp"
+#include "MixedFilament.hpp"
 
 #include <memory>
 #include <unordered_map>
@@ -213,8 +214,9 @@ public:
     // BBS: ams
     std::map<int, DynamicPrintConfig> filament_ams_list;
     std::vector<std::vector<std::string>> ams_multi_color_filment;
-
     std::vector<std::map<int, int>> extruder_ams_counts;
+    // Mixed (virtual) filaments for layer-based colour mixing.
+    MixedFilamentManager        mixed_filaments;
 
     // Calibrate
     Preset const * calibrate_printer = nullptr;

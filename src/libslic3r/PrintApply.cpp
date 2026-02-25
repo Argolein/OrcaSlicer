@@ -1114,10 +1114,16 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     //BBS: add more logs
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", Line %1%: enter")%__LINE__;
     // Normalize the config.
-	new_full_config.option("print_settings_id",            true);
-	new_full_config.option("filament_settings_id",         true);
-	new_full_config.option("printer_settings_id",          true);
-
+    new_full_config.option("print_settings_id",            true);
+    new_full_config.option("filament_settings_id",         true);
+    new_full_config.option("printer_settings_id",          true);
+    // Ensure newly introduced dithering keys are present so in-session updates are detected.
+    new_full_config.option("dithering_z_step_size", true);
+    new_full_config.option("dithering_step_painted_zones_only", true);
+    m_config.option("dithering_z_step_size", true);
+    m_config.option("dithering_step_painted_zones_only", true);
+    m_default_object_config.option("dithering_z_step_size", true);
+    m_default_object_config.option("dithering_step_painted_zones_only", true);
     // BBS
     std::vector <unsigned int> used_filaments = this->extruders(true);
     std::unordered_set <unsigned int> used_filament_set(used_filaments.begin(), used_filaments.end());

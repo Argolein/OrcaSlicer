@@ -1204,6 +1204,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     new_full_config.option("mixed_filament_advanced_dithering", true);
     new_full_config.option("mixed_filament_pointillism_pixel_size", true);
     new_full_config.option("mixed_filament_pointillism_line_gap", true);
+    new_full_config.option("mixed_filament_surface_indentation", true);
     new_full_config.option("mixed_filament_definitions", true);
     m_config.option("dithering_z_step_size", true);
     m_config.option("dithering_local_z_mode", true);
@@ -1215,6 +1216,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     m_config.option("mixed_filament_advanced_dithering", true);
     m_config.option("mixed_filament_pointillism_pixel_size", true);
     m_config.option("mixed_filament_pointillism_line_gap", true);
+    m_config.option("mixed_filament_surface_indentation", true);
     m_config.option("mixed_filament_definitions", true);
     m_default_object_config.option("dithering_z_step_size", true);
     m_default_object_config.option("dithering_local_z_mode", true);
@@ -1226,6 +1228,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     m_default_object_config.option("mixed_filament_advanced_dithering", true);
     m_default_object_config.option("mixed_filament_pointillism_pixel_size", true);
     m_default_object_config.option("mixed_filament_pointillism_line_gap", true);
+    m_default_object_config.option("mixed_filament_surface_indentation", true);
     m_default_object_config.option("mixed_filament_definitions", true);
     // BBS
     std::vector <unsigned int> used_filaments = this->extruders(true);
@@ -1383,6 +1386,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     bool  mixed_advanced_dither = false;
     float mixed_pointillism_pixel_size = 0.f;
     float mixed_pointillism_line_gap   = 0.f;
+    float mixed_surface_indentation    = 0.f;
     std::string mixed_custom_definitions;
     if (new_full_config.has("mixed_filament_gradient_mode")) {
         if (const ConfigOptionBool *opt = new_full_config.option<ConfigOptionBool>("mixed_filament_gradient_mode"))
@@ -1406,6 +1410,8 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         mixed_pointillism_pixel_size = float(new_full_config.opt_float("mixed_filament_pointillism_pixel_size"));
     if (new_full_config.has("mixed_filament_pointillism_line_gap"))
         mixed_pointillism_line_gap = float(new_full_config.opt_float("mixed_filament_pointillism_line_gap"));
+    if (new_full_config.has("mixed_filament_surface_indentation"))
+        mixed_surface_indentation = float(new_full_config.opt_float("mixed_filament_surface_indentation"));
     if (new_full_config.has("mixed_filament_definitions"))
         mixed_custom_definitions = new_full_config.opt_string("mixed_filament_definitions");
 
@@ -1415,6 +1421,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     mixed_cycle_layers  = std::max(2, mixed_cycle_layers);
     mixed_pointillism_pixel_size = std::max(0.f, mixed_pointillism_pixel_size);
     mixed_pointillism_line_gap   = std::max(0.f, mixed_pointillism_line_gap);
+    mixed_surface_indentation    = std::clamp(mixed_surface_indentation, -2.f, 2.f);
 
     BOOST_LOG_TRIVIAL(info) << "Print::apply mixed settings"
                             << ", gradient_mode=" << mixed_gradient_mode
@@ -1424,6 +1431,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                             << ", advanced_dither=" << (mixed_advanced_dither ? 1 : 0)
                             << ", pointillism_pixel_size=" << mixed_pointillism_pixel_size
                             << ", pointillism_line_gap=" << mixed_pointillism_line_gap
+                            << ", surface_indentation=" << mixed_surface_indentation
                             << ", custom_definitions_len=" << mixed_custom_definitions.size()
                             << ", physical_extruders=" << num_extruders;
 

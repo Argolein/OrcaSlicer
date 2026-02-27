@@ -1327,22 +1327,6 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
         }
 
     if (this->has_wipe_tower() && ! m_objects.empty()) {
-        // Make sure all extruders use same diameter filament and have the same nozzle diameter
-        // EPSILON comparison is used for nozzles and 10 % tolerance is used for filaments
-        double first_nozzle_diam = m_config.nozzle_diameter.get_at(extruders.front());
-        double first_filament_diam = m_config.filament_diameter.get_at(extruders.front());
-        for (const auto& extruder_idx : extruders) {
-            double nozzle_diam = m_config.nozzle_diameter.get_at(extruder_idx);
-            double filament_diam = m_config.filament_diameter.get_at(extruder_idx);
-            if (nozzle_diam - EPSILON > first_nozzle_diam || nozzle_diam + EPSILON < first_nozzle_diam
-                || std::abs((filament_diam - first_filament_diam) / first_filament_diam) > 0.1) {
-                // return { L("Different nozzle diameters and different filament diameters may not work well when prime tower is enabled. It's very experimental, please proceed with caucious.") };
-                    warning->string = L("Different nozzle diameters and different filament diameters may not work well when the prime tower is enabled. It's very experimental, so please proceed with caution.");
-                    warning->opt_key = "nozzle_diameter";
-                    break;
-                }
-        }
-
         if (! m_config.use_relative_e_distances)
             return { L("The Wipe Tower is currently only supported with the relative extruder addressing (use_relative_e_distances=1).") };
 

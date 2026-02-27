@@ -2597,6 +2597,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("single_extruder_multi_material_priming", "multimaterial_settings_prime_tower");
 
         optgroup = page->new_optgroup(L("Filament for Features"), L"param_filament_for_features");
+        optgroup->append_single_option_line("map_filament_to_tools", "multimaterial_settings_filament_for_features");
         optgroup->append_single_option_line("wall_filament", "multimaterial_settings_filament_for_features#walls");
         optgroup->append_single_option_line("sparse_infill_filament", "multimaterial_settings_filament_for_features#infill");
         optgroup->append_single_option_line("solid_infill_filament", "multimaterial_settings_filament_for_features#solid-infill");
@@ -2808,6 +2809,14 @@ void TabPrint::update()
     }
 
     m_config_manipulation.update_print_fff_config(m_config, m_type < Preset::TYPE_COUNT, m_type == Preset::TYPE_PLATE);
+    {
+        const bool is_bbl_dual = m_preset_bundle->is_bbl_vendor() && m_preset_bundle->get_printer_extruder_count() == 2;
+        const bool show_ignore_object_extruder = !is_bbl_dual;
+        for (auto page : m_pages)
+            for (auto group : page->m_optgroups)
+                if (group->opt_map().find("map_filament_to_tools") != group->opt_map().end())
+                    group->show_field("map_filament_to_tools", show_ignore_object_extruder);
+    }
 
     update_description_lines();
     //BBS: GUI refactor

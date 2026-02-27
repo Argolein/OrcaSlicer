@@ -1347,7 +1347,7 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
                 // As this region may split existing regions, we collect statistics over all regions for color_idx == 0.
                 color_idx == 0 || config.wall_filament == int(color_idx)) {
                 //BBS: the extrusion line width is outer wall rather than inner wall
-                const double nozzle_diameter = print_object.print()->config().nozzle_diameter.get_at(0);
+                const double nozzle_diameter = nozzle_diameter_for_filament(print_object.print()->config(), config.wall_filament.value);
                 double outer_wall_line_width = config.get_abs_value("outer_wall_line_width", nozzle_diameter);
                 out.extrusion_width     = std::max<float>(out.extrusion_width, outer_wall_line_width);
                 out.top_shell_layers    = std::max<int>(out.top_shell_layers, config.top_shell_layers);

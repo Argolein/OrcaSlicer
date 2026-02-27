@@ -4570,6 +4570,13 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionInt(1));
 
+    def = this->add("map_filament_to_tools", coBool);
+    def->label = L("Ignore object extruder for features");
+    def->category = L("Extruders");
+    def->tooltip = L("When enabled, the object-level extruder (including the default 1) will not override wall/infill/solid feature extruders.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("inner_wall_line_width", coFloatOrPercent);
     def->label = L("Inner wall");
     def->category = L("Quality");

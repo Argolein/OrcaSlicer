@@ -1,5 +1,7 @@
 #include <chrono>
 #include <math.h>
+#include <algorithm>
+#include <limits>
 
 #include "format.hpp"
 #include "ClipperUtils.hpp"
@@ -653,8 +655,20 @@ void TreeSupport::detect_overhangs(bool check_support_necessity/* = false*/)
     const PrintObjectConfig& config = m_object->config();
     SupportType stype = support_type;
     const coordf_t radius_sample_resolution = g_config_tree_support_collision_resolution;
-    const double nozzle_diameter = m_object->print()->config().nozzle_diameter.get_at(0);
-    const coordf_t extrusion_width = config.get_abs_value("line_width", nozzle_diameter);
+    const PrintConfig &print_config = m_object->print()->config();
+    double extrusion_width = std::numeric_limits<double>::max();
+    if (!m_object->shared_regions()->all_regions.empty()) {
+        for (const auto &region : m_object->shared_regions()->all_regions) {
+            const PrintRegionConfig &region_config = region->config();
+            const double nozzle_diameter = nozzle_diameter_for_filament(print_config, region_config.wall_filament.value);
+            const double region_width = config.get_abs_value("line_width", nozzle_diameter);
+            extrusion_width = std::min(extrusion_width, region_width);
+        }
+    }
+    if (extrusion_width == std::numeric_limits<double>::max()) {
+        const double nozzle_diameter = print_config.nozzle_diameter.get_at(0);
+        extrusion_width = config.get_abs_value("line_width", nozzle_diameter);
+    }
     const coordf_t extrusion_width_scaled = scale_(extrusion_width);
     const coordf_t max_bridge_length = scale_(config.max_bridge_length.value);
     const bool bridge_no_support = max_bridge_length > 0;
@@ -1319,7 +1333,7 @@ void TreeSupport::generate_toolpaths()
 {
     const PrintObjectConfig &object_config = m_object->config();
     coordf_t support_extrusion_width = m_support_params.support_extrusion_width;
-    coordf_t nozzle_diameter = m_print_config->nozzle_diameter.get_at(object_config.support_filament - 1);
+    coordf_t nozzle_diameter = nozzle_diameter_for_filament(*m_print_config, object_config.support_filament);
     coordf_t layer_height = object_config.layer_height.value;
     const size_t wall_count = object_config.tree_support_wall_count.value;
 
@@ -1949,8 +1963,8 @@ void TreeSupport::draw_circles()
     const coordf_t layer_height = config.layer_height.value;
     const size_t   top_interface_layers = config.support_interface_top_layers.value;
     const size_t   bottom_interface_layers = config.support_interface_bottom_layers.value < 0 ? top_interface_layers : config.support_interface_bottom_layers.value;
-    const double nozzle_diameter = m_object->print()->config().nozzle_diameter.get_at(0);
-    const coordf_t line_width = config.get_abs_value("support_line_width", nozzle_diameter);
+    const double support_nozzle_diameter = nozzle_diameter_for_filament(m_object->print()->config(), config.support_filament.value);
+    const coordf_t line_width = config.get_abs_value("support_line_width", support_nozzle_diameter);
     const coordf_t line_width_scaled           = scale_(line_width);
     const bool with_lightning_infill = m_support_params.base_fill_pattern == ipLightning;
     coordf_t support_extrusion_width = m_support_params.support_extrusion_width;

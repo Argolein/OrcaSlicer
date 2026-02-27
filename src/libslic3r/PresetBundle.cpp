@@ -87,6 +87,12 @@ DynamicPrintConfig PresetBundle::construct_full_config(
     }
 
     auto *extruder_diameter = dynamic_cast<const ConfigOptionFloats *>(out.option("nozzle_diameter"));
+    const size_t extruder_count = extruder_diameter ? extruder_diameter->values.size() : 0;
+    const bool is_bbl_dual = (in_printer_preset.vendor && in_printer_preset.vendor->id == "BBL" && extruder_count == 2);
+    if (is_bbl_dual) {
+        if (auto* map_to_tools_opt = out.option<ConfigOptionBool>("map_filament_to_tools", false))
+            map_to_tools_opt->value = false;
+    }
     // Collect the "compatible_printers_condition" and "inherits" values over all presets (print, filaments, printers) into a single vector.
     std::vector<std::string> compatible_printers_condition;
     std::vector<std::string> compatible_prints_condition;
@@ -3061,6 +3067,13 @@ DynamicPrintConfig PresetBundle::full_fff_config(bool apply_extruder, std::optio
     }
 
     auto* extruder_diameter = dynamic_cast<const ConfigOptionFloats*>(out.option("nozzle_diameter"));
+    const size_t extruder_count = extruder_diameter ? extruder_diameter->values.size() : 0;
+    const Preset& printer_preset = this->printers.get_edited_preset();
+    const bool is_bbl_dual = (printer_preset.vendor && printer_preset.vendor->id == "BBL" && extruder_count == 2);
+    if (is_bbl_dual) {
+        if (auto* map_to_tools_opt = out.option<ConfigOptionBool>("map_filament_to_tools", false))
+            map_to_tools_opt->value = false;
+    }
     // Collect the "compatible_printers_condition" and "inherits" values over all presets (print, filaments, printers) into a single vector.
     std::vector<std::string> compatible_printers_condition;
     std::vector<std::string> compatible_prints_condition;

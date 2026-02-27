@@ -272,7 +272,8 @@ void PrintObject::_transform_hole_to_polyholes()
     }
     //create a polyhole per id and replace holes points by it.
     for (auto entry : id2layerz2hole) {
-        Polygons polyholes = create_polyholes(std::get<0>(entry.first), std::get<1>(entry.first), scale_(print()->config().nozzle_diameter.get_at(std::get<2>(entry.first) - 1)), std::get<4>(entry.first));
+        Polygons polyholes = create_polyholes(std::get<0>(entry.first), std::get<1>(entry.first),
+            scale_(nozzle_diameter_for_filament(print()->config(), std::get<2>(entry.first))), std::get<4>(entry.first));
         for (auto& poly_to_replace : entry.second) {
             Polygon polyhole = polyholes[poly_to_replace.second % polyholes.size()];
             //search the clone in layers->slices
@@ -723,10 +724,21 @@ static const float g_min_overhang_percent_for_lift = 0.3f;
 void PrintObject::detect_overhangs_for_lift()
 {
     if (this->set_started(posDetectOverhangsForLift)) {
-        const double nozzle_diameter = m_print->config().nozzle_diameter.get_at(0);
-        const coordf_t line_width = this->config().get_abs_value("line_width", nozzle_diameter);
-
-        const float min_overlap = line_width * g_min_overhang_percent_for_lift;
+        const PrintConfig &print_config = m_print->config();
+        std::vector<double> line_widths;
+        line_widths.reserve(this->num_printing_regions());
+        for (size_t region_id = 0; region_id < this->num_printing_regions(); ++region_id) {
+            const PrintRegionConfig &region_config = this->printing_region(region_id).config();
+            const double nozzle_diameter = nozzle_diameter_for_filament(print_config, region_config.wall_filament.value);
+            line_widths.push_back(this->config().get_abs_value("line_width", nozzle_diameter));
+        }
+        if (line_widths.empty()) {
+            const double nozzle_diameter = print_config.nozzle_diameter.get_at(0);
+            line_widths.push_back(this->config().get_abs_value("line_width", nozzle_diameter));
+        } else {
+            std::sort(line_widths.begin(), line_widths.end());
+            line_widths.erase(std::unique(line_widths.begin(), line_widths.end()), line_widths.end());
+        }
         size_t num_layers = this->layer_count();
         size_t num_raft_layers = m_slicing_params.raft_layers();
 
@@ -736,14 +748,20 @@ void PrintObject::detect_overhangs_for_lift()
 
         tbb::spin_mutex layer_storage_mutex;
         tbb::parallel_for(tbb::blocked_range<size_t>(num_raft_layers + 1, num_layers),
-            [this, min_overlap, line_width](const tbb::blocked_range<size_t>& range)
+            [this, &line_widths](const tbb::blocked_range<size_t>& range)
             {
                 for (size_t layer_id = range.begin(); layer_id < range.end(); ++layer_id) {
                     Layer& layer = *m_layers[layer_id];
                     Layer& lower_layer = *layer.lower_layer;
 
-                    ExPolygons overhangs = diff_ex(layer.lslices, offset_ex(lower_layer.lslices, scale_(min_overlap)));
-                    layer.loverhangs = std::move(offset2_ex(overhangs, -0.1f * scale_(line_width), 0.1f * scale_(line_width)));
+                    ExPolygons merged_overhangs;
+                    for (double line_width : line_widths) {
+                        const float min_overlap = float(line_width * g_min_overhang_percent_for_lift);
+                        ExPolygons overhangs = diff_ex(layer.lslices, offset_ex(lower_layer.lslices, scale_(min_overlap)));
+                        ExPolygons adjusted = offset2_ex(overhangs, -0.1f * scale_(line_width), 0.1f * scale_(line_width));
+                        merged_overhangs = merged_overhangs.empty() ? std::move(adjusted) : union_ex(merged_overhangs, adjusted);
+                    }
+                    layer.loverhangs = std::move(merged_overhangs);
                     layer.loverhangs_bbox = get_extents(layer.loverhangs);
                 }
             });
@@ -3292,11 +3310,33 @@ static void clamp_exturder_to_default(ConfigOptionInt &opt, size_t num_extruders
         opt.value = 1;
 }
 
-PrintObjectConfig PrintObject::object_config_from_model_object(const PrintObjectConfig &default_object_config, const ModelObject &object, size_t num_extruders)
+static bool has_explicit_role_extruders(const DynamicPrintConfig &cfg)
+{
+    return cfg.has("wall_filament") || cfg.has("sparse_infill_filament") || cfg.has("solid_infill_filament");
+}
+
+static bool should_apply_extruder_override(const DynamicPrintConfig &cfg, const bool ignore_object_extruder_for_features)
+{
+    auto *opt_extruder = cfg.opt<ConfigOptionInt>("extruder");
+    if (!opt_extruder)
+        return false;
+    const int extruder = opt_extruder->value;
+    if (extruder == 0)
+        return false;
+    if (!ignore_object_extruder_for_features)
+        return true;
+    // Treat extruder=1 as the default unless explicit role extruders are set.
+    return (extruder != 1) || has_explicit_role_extruders(cfg);
+}
+
+PrintObjectConfig PrintObject::object_config_from_model_object(const PrintObjectConfig &default_object_config, const ModelObject &object, size_t num_extruders,
+    const bool ignore_object_extruder_for_features)
 {
     PrintObjectConfig config = default_object_config;
     {
         DynamicPrintConfig src_normalized(object.config.get());
+        if (!should_apply_extruder_override(src_normalized, ignore_object_extruder_for_features) && src_normalized.has("extruder"))
+            src_normalized.erase("extruder");
         src_normalized.normalize_fdm();
         config.apply(src_normalized, true);
     }
@@ -3309,17 +3349,20 @@ PrintObjectConfig PrintObject::object_config_from_model_object(const PrintObject
 const std::string                                                    key_extruder { "extruder" };
 static constexpr const std::initializer_list<const std::string_view> keys_extruders { "sparse_infill_filament"sv, "solid_infill_filament"sv, "wall_filament"sv };
 
-static void apply_to_print_region_config(PrintRegionConfig &out, const DynamicPrintConfig &in)
+static void apply_to_print_region_config(PrintRegionConfig &out, const DynamicPrintConfig &in, const bool ignore_object_extruder_for_features)
 {
     // 1) Copy the "extruder key to sparse_infill_filament and wall_filament.
     auto *opt_extruder = in.opt<ConfigOptionInt>(key_extruder);
-    if (opt_extruder)
-        if (int extruder = opt_extruder->value; extruder != 0) {
+    if (opt_extruder) {
+        const int extruder = opt_extruder->value;
+        const bool apply_extruder = extruder != 0 && (!ignore_object_extruder_for_features || extruder != 1 || has_explicit_role_extruders(in));
+        if (apply_extruder) {
             // Not a default extruder.
             out.sparse_infill_filament.value = extruder;
             out.solid_infill_filament.value  = extruder;
             out.wall_filament.value          = extruder;
         }
+    }
     // 2) Copy the rest of the values.
     for (auto it = in.cbegin(); it != in.cend(); ++ it)
         if (it->first != key_extruder)
@@ -3334,23 +3377,24 @@ static void apply_to_print_region_config(PrintRegionConfig &out, const DynamicPr
             }
 }
 
-PrintRegionConfig region_config_from_model_volume(const PrintRegionConfig &default_or_parent_region_config, const DynamicPrintConfig *layer_range_config, const ModelVolume &volume, size_t num_extruders)
+PrintRegionConfig region_config_from_model_volume(const PrintRegionConfig &default_or_parent_region_config, const DynamicPrintConfig *layer_range_config, const ModelVolume &volume,
+    size_t num_extruders, const bool ignore_object_extruder_for_features)
 {
     PrintRegionConfig config = default_or_parent_region_config;
     if (volume.is_model_part()) {
         // default_or_parent_region_config contains the Print's PrintRegionConfig.
         // Override with ModelObject's PrintRegionConfig values.
-        apply_to_print_region_config(config, volume.get_object()->config.get());
+        apply_to_print_region_config(config, volume.get_object()->config.get(), ignore_object_extruder_for_features);
     } else {
         // default_or_parent_region_config contains parent PrintRegion config, which already contains ModelVolume's config.
     }
-    apply_to_print_region_config(config, volume.config.get());
+    apply_to_print_region_config(config, volume.config.get(), ignore_object_extruder_for_features);
     if (! volume.material_id().empty())
-        apply_to_print_region_config(config, volume.material()->config.get());
+        apply_to_print_region_config(config, volume.material()->config.get(), ignore_object_extruder_for_features);
     if (layer_range_config != nullptr) {
         // Not applicable to modifiers.
         assert(volume.is_model_part());
-    	apply_to_print_region_config(config, *layer_range_config);
+    	apply_to_print_region_config(config, *layer_range_config, ignore_object_extruder_for_features);
     }
     // Clamp invalid extruders to the default extruder (with index 1).
     clamp_exturder_to_default(config.sparse_infill_filament,       num_extruders);
@@ -3407,14 +3451,15 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
 	default_region_config.apply(full_config, true);
     // BBS
 	size_t              filament_extruders = print_config.filament_diameter.size();
-	object_config = object_config_from_model_object(object_config, model_object, filament_extruders);
+	const bool ignore_object_extruder_for_features = full_config.opt_bool("map_filament_to_tools");
+	object_config = object_config_from_model_object(object_config, model_object, filament_extruders, ignore_object_extruder_for_features);
 
 	std::vector<unsigned int> object_extruders;
 	for (const ModelVolume* model_volume : model_object.volumes)
 		if (model_volume->is_model_part()) {
 			PrintRegion::collect_object_printing_extruders(
 				print_config,
-				region_config_from_model_volume(default_region_config, nullptr, *model_volume, filament_extruders),
+				region_config_from_model_volume(default_region_config, nullptr, *model_volume, filament_extruders, ignore_object_extruder_for_features),
                 object_config.brim_type != btNoBrim && object_config.brim_width > 0.,
 				object_extruders);
 			for (const std::pair<const t_layer_height_range, ModelConfig> &range_and_config : model_object.layer_config_ranges)
@@ -3423,7 +3468,7 @@ SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig &full
 					range_and_config.second.has("solid_infill_filament"))
 					PrintRegion::collect_object_printing_extruders(
 						print_config,
-						region_config_from_model_volume(default_region_config, &range_and_config.second.get(), *model_volume, filament_extruders),
+						region_config_from_model_volume(default_region_config, &range_and_config.second.get(), *model_volume, filament_extruders, ignore_object_extruder_for_features),
                         object_config.brim_type != btNoBrim && object_config.brim_width > 0.,
 						object_extruders);
 		}
@@ -3837,8 +3882,8 @@ void PrintObject::combine_infill()
         // Limit the number of combined layers to the maximum height allowed by this regions' nozzle.
         //FIXME limit the layer height to max_layer_height
         double nozzle_diameter = std::min(
-            this->print()->config().nozzle_diameter.get_at(region.config().sparse_infill_filament.value - 1),
-            this->print()->config().nozzle_diameter.get_at(region.config().solid_infill_filament.value - 1));
+            nozzle_diameter_for_filament(this->print()->config(), region.config().sparse_infill_filament.value),
+            nozzle_diameter_for_filament(this->print()->config(), region.config().solid_infill_filament.value));
         
         //Orca: Limit combination of infill to up to infill_combination_max_layer_height
         const double infill_combination_max_layer_height = region.config().infill_combination_max_layer_height.get_abs_value(nozzle_diameter);

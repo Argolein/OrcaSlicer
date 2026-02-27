@@ -1272,6 +1272,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloats,              filament_max_volumetric_speed))
     ((ConfigOptionInts,                required_nozzle_HRC))
     ((ConfigOptionEnum<FilamentMapMode>, filament_map_mode))
+    ((ConfigOptionBool,                map_filament_to_tools))
     ((ConfigOptionInts,                filament_map))
     //((ConfigOptionInts,                filament_extruder_id))
     ((ConfigOptionStrings,             filament_extruder_variant))
@@ -2068,6 +2069,17 @@ static void set_flush_volumes_matrix(std::vector<T> &out_matrix, const std::vect
 }
 
 size_t get_extruder_index(const GCodeConfig& config, unsigned int filament_id);
+inline size_t get_extruder_index_for_filament(const PrintConfig& config, int filament_id)
+{
+    if (filament_id <= 0)
+        return 0;
+    return get_extruder_index(config, static_cast<unsigned int>(filament_id - 1));
+}
+
+inline double nozzle_diameter_for_filament(const PrintConfig& config, int filament_id)
+{
+    return config.nozzle_diameter.get_at(get_extruder_index_for_filament(config, filament_id));
+}
 
 } // namespace Slic3r
 

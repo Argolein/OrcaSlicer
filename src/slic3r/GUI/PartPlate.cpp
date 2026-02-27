@@ -1832,6 +1832,13 @@ std::vector<int> PartPlate::get_used_filaments()
 bool PartPlate::check_filament_printable(const DynamicPrintConfig &config, wxString& error_message)
 {
     error_message.clear();
+    PresetBundle* preset = wxGetApp().preset_bundle;
+    if (!preset)
+        return true;
+    const bool dual_bbl = (preset->is_bbl_vendor() && preset->get_printer_extruder_count() == 2);
+    if (!dual_bbl)
+        return true;
+
     FilamentMapMode mode = this->get_real_filament_map_mode(config);
     // only check printablity if we have explicit map result
     if (mode != fmmManual)

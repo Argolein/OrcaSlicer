@@ -33,7 +33,7 @@ Flow LayerRegion::bridging_flow(FlowRole role, bool thick_bridge) const
     const PrintRegionConfig &region_config  = region.config();
     const PrintObject       &print_object   = *this->layer()->object();
     Flow bridge_flow;
-    auto nozzle_diameter = float(print_object.print()->config().nozzle_diameter.get_at(region.extruder(role) - 1));
+    auto nozzle_diameter = float(nozzle_diameter_for_filament(print_object.print()->config(), int(region.extruder(role))));
     if (thick_bridge) {
         // The old Slic3r way (different from all other slicers): Use rounded extrusions.
         // Get the configured nozzle_diameter for the extruder associated to the flow role requested.

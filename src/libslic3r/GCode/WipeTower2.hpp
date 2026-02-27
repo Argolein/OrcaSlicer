@@ -188,8 +188,21 @@ private:
 
     const float Width_To_Nozzle_Ratio = 1.25f; // desired line width (oval) in multiples of nozzle diameter - may not be actually neccessary to adjust
     const float WT_EPSILON            = 1e-3f;
-    float filament_area() const {
-        return m_filpar[0].filament_area; // all extruders are assumed to have the same filament diameter at this point
+    float filament_area(size_t tool) const {
+        if (m_filpar.empty())
+            return 1.f;
+        const size_t idx = tool < m_filpar.size() ? tool : size_t(0);
+        const float area = m_filpar[idx].filament_area;
+        return area > 0.f ? area : m_filpar[0].filament_area;
+    }
+    float tool_line_width(size_t tool) const {
+        if (m_filpar.empty())
+            return m_perimeter_width;
+        const size_t idx = tool < m_filpar.size() ? tool : size_t(0);
+        const float nozzle_diameter = m_filpar[idx].nozzle_diameter;
+        if (nozzle_diameter > 0.f)
+            return nozzle_diameter * Width_To_Nozzle_Ratio;
+        return m_perimeter_width;
     }
 
 
@@ -281,7 +294,8 @@ private:
 	{
 		if ( layer_height < 0 )
 			return m_extrusion_flow;
-		return layer_height * ( m_perimeter_width - layer_height * (1.f-float(M_PI)/4.f)) / filament_area();
+        const float line_width = tool_line_width(m_current_tool);
+		return layer_height * (line_width - layer_height * (1.f - float(M_PI) / 4.f)) / filament_area(m_current_tool);
 	}
 
 

@@ -2405,13 +2405,13 @@ void PrintConfigDef::init_fff_params()
     def = this->add("bed_temperature_formula", coEnum);
     def->label = L("Bed temperature type");
     def->tooltip = L("This option determines how the bed temperature is set during slicing: based on the temperature of the first filament or the highest temperature of the printed filaments.");
-    def->mode = comDevelop;
+    def->mode = comAdvanced;
     def->enum_keys_map = &ConfigOptionEnum<BedTempFormula>::get_enum_values();
     def->enum_values.push_back("by_first_filament");
     def->enum_values.push_back("by_highest_temp");
     def->enum_labels.push_back(L("By First filament"));
     def->enum_labels.push_back(L("By Highest Temp"));
-    def->set_default_value(new ConfigOptionEnum<BedTempFormula>(BedTempFormula::btfFirstFilament));
+    def->set_default_value(new ConfigOptionEnum<BedTempFormula>(BedTempFormula::btfHighestTemp));
 
     def = this->add("nozzle_flush_dataset", coInts);
     def->nullable = true;
@@ -3290,7 +3290,7 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.push_back("all");
     def->enum_values.push_back("allwalls");
     def->enum_values.push_back("disabled_fuzzy");
-    def->enum_labels.push_back(L("None (allow paint)"));
+    def->enum_labels.push_back(L("Painted only"));
     def->enum_labels.push_back(L("Contour"));
     def->enum_labels.push_back(L("Contour and hole"));
     def->enum_labels.push_back(L("All walls"));
@@ -5420,7 +5420,7 @@ void PrintConfigDef::init_fff_params()
     def->tooltip = L("Temperature difference to be applied when an extruder is not active. "
                      "The value is not used when 'idle_temperature' in filament settings "
                      "is set to non-zero value.");
-    def->sidetext = L(u8"∆\u2103");	// delta degrees Celsius, CIS languages need translation
+    def->sidetext = L(u8"\u2206\u2103" /* ∆°C */);	// delta degrees Celsius, CIS languages need translation
     def->min = -max_temp;
     def->max = max_temp;
     def->mode = comAdvanced;
@@ -5782,7 +5782,12 @@ void PrintConfigDef::init_fff_params()
     def = this->add("support_base_pattern", coEnum);
     def->label = L("Base pattern");
     def->category = L("Support");
-    def->tooltip = L("Line pattern of support.");
+    def->tooltip = L("Line pattern of support.\n\n"
+                     "The Default option for Tree supports is Hollow, which means no base pattern. "
+                     "For other support types, the Default option is the Rectilinear pattern.\n\n"
+                     "NOTE: For Organic supports, the two walls are supported only with the Hollow/Default base pattern. "
+                     "The Lightning base pattern is supported only by Tree Slim/Strong/Hybrid supports. "
+                     "For the other support types, the Rectilinear will be used instead of Lightning.");
     def->enum_keys_map = &ConfigOptionEnum<SupportMaterialPattern>::get_enum_values();
     def->enum_values.push_back("default");
     def->enum_values.push_back("rectilinear");

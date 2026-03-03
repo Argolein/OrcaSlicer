@@ -2391,12 +2391,18 @@ WipeTowerWriter writer(m_layer_height, tool_line_width(m_current_tool), m_gcode_
     box_coordinates wt_box(Vec2f(0.f, (m_current_shape == SHAPE_REVERSED ? m_layer_info->toolchanges_depth() : 0.f)),
         m_wipe_tower_width, m_layer_info->depth + m_perimeter_width);
     wt_box = align_perimeter(wt_box);
+    const float perimeter_width = tool_line_width(m_current_tool);
+    const float perimeter_offset = std::max(0.f, (m_perimeter_width - perimeter_width) * 0.5f);
+    box_coordinates wt_print_box = wt_box;
+    if (perimeter_offset > 0.f)
+        wt_print_box.expand(perimeter_offset);
     if (extrude_perimeter) {
-        writer.rectangle(wt_box, feedrate);
+        writer.rectangle(wt_print_box, feedrate);
     }
+    wt_box = wt_print_box;
 
     // brim chamfer
-    float spacing = m_perimeter_width - m_layer_height * float(1. - M_PI_4);
+    float spacing = perimeter_width - m_layer_height * float(1. - M_PI_4);
     // How many perimeters shall the brim have?
     int loops_num = (m_wipe_tower_brim_width + spacing / 2.f) / spacing;
     const float max_chamfer_width = 3.f;
@@ -2414,7 +2420,7 @@ WipeTowerWriter writer(m_layer_height, tool_line_width(m_current_tool), m_gcode_
     }
 
     if (loops_num > 0) {
-        box_coordinates box = wt_box;
+        box_coordinates box = wt_print_box;
         for (size_t i = 0; i < loops_num; ++i) {
             box.expand(spacing);
             writer.rectangle(box, feedrate);
@@ -2423,7 +2429,7 @@ WipeTowerWriter writer(m_layer_height, tool_line_width(m_current_tool), m_gcode_
         if (first_layer) {
             // Save actual brim width to be later passed to the Print object, which will use it
             // for skirt calculation and pass it to GLCanvas for precise preview box
-            m_wipe_tower_brim_width_real = wt_box.ld.x() - box.ld.x() + spacing / 2.f;
+            m_wipe_tower_brim_width_real = wt_print_box.ld.x() - box.ld.x() + spacing / 2.f;
         }
         wt_box = box;
     }
@@ -3143,6 +3149,11 @@ WipeTower::ToolChangeResult WipeTower::finish_layer_new(bool extrude_perimeter, 
     }
     box_coordinates wt_box(Vec2f(0.f, 0.f), m_wipe_tower_width, wipe_tower_depth);
     wt_box = align_perimeter(wt_box);
+    const float perimeter_width = tool_line_width(m_current_tool);
+    const float perimeter_offset = std::max(0.f, (m_perimeter_width - perimeter_width) * 0.5f);
+    box_coordinates wt_print_box = wt_box;
+    if (perimeter_offset > 0.f)
+        wt_print_box.expand(perimeter_offset);
 
     //if (extrude_perimeter && !m_use_rib_wall) {
     //    if (!m_use_gap_wall)
@@ -3151,14 +3162,14 @@ WipeTower::ToolChangeResult WipeTower::finish_layer_new(bool extrude_perimeter, 
     //        generate_support_wall(writer, wt_box, feedrate, first_layer);
     //}
     Polygon outer_wall;
-    outer_wall = generate_support_wall_new(writer, wt_box, feedrate, first_layer, m_use_rib_wall, extrude_perimeter, m_use_gap_wall);
+    outer_wall = generate_support_wall_new(writer, wt_print_box, feedrate, first_layer, m_use_rib_wall, extrude_perimeter, m_use_gap_wall);
     if (extrude_perimeter) {
         Polyline shift_polyline = to_polyline(outer_wall);
         shift_polyline.translate(0, scaled(m_y_shift));
         m_outer_wall[m_z_pos].push_back(shift_polyline);
     }
     // brim chamfer
-    float spacing = m_perimeter_width - m_layer_height * float(1. - M_PI_4);
+    float spacing = perimeter_width - m_layer_height * float(1. - M_PI_4);
     // How many perimeters shall the brim have?
     int loops_num = (m_wipe_tower_brim_width + spacing / 2.f) / spacing;
     const float max_chamfer_width = 3.f;

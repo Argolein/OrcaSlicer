@@ -2100,18 +2100,24 @@ WipeTower::ToolChangeResult WipeTower2::finish_layer()
                       ";------------------\n\n\n\n\n\n\n");
     }
 
-    const float spacing = m_perimeter_width - m_layer_height*float(1.-M_PI_4);
+    const float perimeter_width = tool_line_width(m_current_tool);
+    const float perimeter_offset = std::max(0.f, (m_perimeter_width - perimeter_width) * 0.5f);
+    const float spacing = perimeter_width - m_layer_height * float(1. - M_PI_4);
     feedrate = first_layer ? m_first_layer_speed * 60.f : std::min(m_wipe_tower_max_purge_speed * 60.f, m_perimeter_speed * 60.f);
 
     Polygon poly;
     if (m_wall_type == (int)wtwCone) {
          WipeTower::box_coordinates wt_box(Vec2f(0.f, (m_current_shape == SHAPE_REVERSED ? m_layer_info->toolchanges_depth() : 0.f)),
                                            m_wipe_tower_width, m_layer_info->depth + m_perimeter_width);
+        if (perimeter_offset > 0.f)
+            wt_box.expand(perimeter_offset);
         // outer contour (always)
         bool infill_cone = first_layer && m_wipe_tower_width > 2 * spacing && m_wipe_tower_depth > 2 * spacing;
         poly = generate_support_cone_wall(writer, wt_box, feedrate, infill_cone, spacing);
     } else {
         WipeTower::box_coordinates wt_box(Vec2f(0.f, 0.f), m_wipe_tower_width, m_layer_info->depth + m_perimeter_width);
+        if (perimeter_offset > 0.f)
+            wt_box.expand(perimeter_offset);
         poly = generate_support_rib_wall(writer, wt_box, feedrate, first_layer, m_wall_type == (int)wtwRib, true, false);
     }
 

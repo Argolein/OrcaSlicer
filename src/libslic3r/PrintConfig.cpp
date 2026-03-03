@@ -4571,7 +4571,7 @@ void PrintConfigDef::init_fff_params()
     def->set_default_value(new ConfigOptionInt(1));
 
     def = this->add("map_filament_to_tools", coBool);
-    def->label = L("Ignore object extruder for features");
+    def->label = L("Respect feature extruders");
     def->category = L("Extruders");
     def->tooltip = L("When enabled, the object-level extruder (including the default 1) will not override wall/infill/solid feature extruders.");
     def->mode = comAdvanced;

@@ -48,6 +48,15 @@ using namespace nlohmann;
 
 namespace Slic3r {
 
+static bool use_wipe_tower2_for_print(const Print& print)
+{
+    const PrintConfig& config = print.config();
+    const bool use_advanced_prime_tower = config.prime_tower_enable_framework.value
+        || config.prime_tower_flat_ironing.value
+        || config.enable_tower_interface_features.value;
+    return !(print.is_BBL_printer() || print.is_QIDI_printer() || use_advanced_prime_tower);
+}
+
 template class PrintState<PrintStep, psCount>;
 template class PrintState<PrintObjectStep, posCount>;
 
@@ -3127,10 +3136,10 @@ void Print::_make_wipe_tower()
     // BBS
     const unsigned int number_of_extruders = (unsigned int)(m_config.filament_colour.values.size());
 
-    const auto bUseWipeTower2 = is_BBL_printer() || is_QIDI_printer() ? false : true;
+    const bool use_wipe_tower2 = use_wipe_tower2_for_print(*this);
     // Let the ToolOrdering class know there will be initial priming extrusions at the start of the print.
-    m_wipe_tower_data.tool_ordering = ToolOrdering(*this, (unsigned int) -1, bUseWipeTower2 ? true : false);
-    m_wipe_tower_data.tool_ordering.sort_and_build_data(*this, (unsigned int)-1, bUseWipeTower2 ? true : false);
+    m_wipe_tower_data.tool_ordering = ToolOrdering(*this, (unsigned int) -1, use_wipe_tower2);
+    m_wipe_tower_data.tool_ordering.sort_and_build_data(*this, (unsigned int)-1, use_wipe_tower2);
 
     if (!m_wipe_tower_data.tool_ordering.has_wipe_tower())
         // Don't generate any wipe tower.
@@ -3173,7 +3182,7 @@ void Print::_make_wipe_tower()
     }
     this->throw_if_canceled();
 
-    if (!bUseWipeTower2) {
+    if (!use_wipe_tower2) {
         // in BBL machine, wipe tower is only use to prime extruder. So just use a global wipe volume.
         WipeTower wipe_tower(m_config, m_plate_index, m_origin, m_wipe_tower_data.tool_ordering.first_extruder(),
                              m_wipe_tower_data.tool_ordering.empty() ? 0.f : m_wipe_tower_data.tool_ordering.back().print_z, m_wipe_tower_data.tool_ordering.all_extruders());
@@ -3262,6 +3271,14 @@ void Print::_make_wipe_tower()
         std::vector<int> categories;
         for (size_t i = 0; i < m_config.filament_adhesiveness_category.values.size(); ++i) {
             categories.push_back(m_config.filament_adhesiveness_category.get_at(i));
+        }
+        if (m_config.prime_tower_enable_framework.value && !categories.empty()) {
+            const bool all_same_category = std::adjacent_find(categories.begin(), categories.end(), std::not_equal_to<int>()) == categories.end();
+            if (all_same_category) {
+                // Keep framework partitions distinct even when the profile uses one category for all filaments.
+                for (size_t i = 0; i < categories.size(); ++i)
+                    categories[i] = int(i);
+            }
         }
         wipe_tower.set_filament_categories(categories);
 
@@ -3415,7 +3432,9 @@ void Print::_make_wipe_tower()
                                                   config().initial_layer_print_height, m_wipe_tower_data.depth,
                                                   m_wipe_tower_data.z_and_depth_pairs, m_wipe_tower_data.brim_width,
                                                   config().wipe_tower_rotation_angle, config().wipe_tower_cone_angle,
-                                                  {scale_(origin.x()), scale_(origin.y())});
+                                                  {scale_(origin.x()), scale_(origin.y())},
+                                                  config().wipe_tower_wall_type.value == WipeTowerWallType::wtwRib,
+                                                  wipe_tower.get_rib_width(), wipe_tower.get_rib_length());
     }
 }
 

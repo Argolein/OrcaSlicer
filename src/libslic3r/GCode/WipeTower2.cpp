@@ -1272,6 +1272,7 @@ WipeTower2::WipeTower2(const PrintConfig& config, const PrintRegionConfig& defau
     m_rib_width(config.wipe_tower_rib_width), 
     m_extra_rib_length(config.wipe_tower_extra_rib_length),
     m_wall_type((int)config.wipe_tower_wall_type),
+    m_use_gap_wall(config.prime_tower_skip_points.value),
     m_flat_ironing(config.prime_tower_flat_ironing.value),
     m_enable_tower_interface_features(config.enable_tower_interface_features.value),
     m_enable_tower_interface_cooldown_during_tower(config.enable_tower_interface_cooldown_during_tower.value)
@@ -1593,7 +1594,7 @@ WipeTower::ToolChangeResult WipeTower2::tool_change(size_t tool)
             float pre_dist = m_filpar[tool].tower_interface_pre_extrusion_dist;
             float pre_len = m_filpar[tool].tower_interface_pre_extrusion_length;
             if (pre_dist > 0.f && pre_len > 0.f) {
-                float target_x = writer.x() + pre_dist;
+                float target_x = writer.x() <= 0.5f * (cleaning_box.ld.x() + cleaning_box.rd.x()) ? writer.x() + pre_dist : writer.x() - pre_dist;
                 target_x = std::max(cleaning_box.ld.x(), std::min(cleaning_box.rd.x(), target_x));
                 writer.extrude_explicit(target_x, writer.y(), pre_len, 600.f);
             }
@@ -2106,7 +2107,7 @@ WipeTower::ToolChangeResult WipeTower2::finish_layer()
         poly = generate_support_cone_wall(writer, wt_box, feedrate, infill_cone, spacing);
     } else {
         WipeTower::box_coordinates wt_box(Vec2f(0.f, 0.f), m_wipe_tower_width, m_layer_info->depth + m_perimeter_width);
-        poly = generate_support_rib_wall(writer, wt_box, feedrate, first_layer, m_wall_type == (int)wtwRib, true, false);
+        poly = generate_support_rib_wall(writer, wt_box, feedrate, first_layer, m_wall_type == (int)wtwRib, true, m_use_gap_wall);
     }
 
     // brim (first layer only)
@@ -2260,7 +2261,7 @@ void WipeTower2::plan_tower()
     m_wipe_tower_height = m_plan.empty() ? 0.f : m_plan.back().z;
     m_current_height = 0.f;
 	
-    for (int layer_index = int(m_plan.size()) - 1; layer_index >= 0; --layer_index)
+	for (int layer_index = int(m_plan.size()) - 1; layer_index >= 0; --layer_index)
 	{
 		float this_layer_depth = std::max(m_plan[layer_index].depth, m_plan[layer_index].toolchanges_depth());
 		m_plan[layer_index].depth = this_layer_depth;
@@ -2274,6 +2275,12 @@ void WipeTower2::plan_tower()
 				m_plan[i].depth = this_layer_depth;
 		}
 	}
+
+    if (m_wall_type == (int)wtwRib && m_wipe_tower_depth > m_perimeter_width) {
+        const float constant_depth = m_wipe_tower_depth - m_perimeter_width;
+        for (auto &layer : m_plan)
+            layer.depth = constant_depth;
+    }
 }
 
 void WipeTower2::save_on_last_wipe()
@@ -2406,6 +2413,8 @@ void WipeTower2::generate(std::vector<std::vector<WipeTower::ToolChangeResult>> 
         if (m_layer_info->depth < m_wipe_tower_depth - m_perimeter_width)
 			m_y_shift = (m_wipe_tower_depth-m_layer_info->depth-m_perimeter_width)/2.f;
 
+        get_wall_skip_points(layer);
+
         int idx = first_toolchange_to_nonsoluble(layer.tool_changes);
         WipeTower::ToolChangeResult finish_layer_tcr;
 
@@ -2494,6 +2503,39 @@ Polygon WipeTower2::generate_rib_polygon(const WipeTower::box_coordinates& wt_bo
     return p_1_2.front();
 };
 
+Polygons WipeTower2::generate_internal_rib_polygons(const WipeTower::box_coordinates& wt_box) const
+{
+    if (m_rib_width <= EPSILON)
+        return {};
+
+    auto get_current_layer_rib_len = [](float cur_height, float max_height, float max_len) -> float {
+        return std::abs(max_height - cur_height) / max_height * max_len;
+    };
+
+    coord_t diagonal_width = scaled(m_rib_width) / 2;
+    float   a              = this->m_wipe_tower_width;
+    float   b              = this->m_wipe_tower_depth;
+    Line    line_1(Point::new_scale(Vec2f{0, 0}), Point::new_scale(Vec2f{a, b}));
+    Line    line_2(Point::new_scale(Vec2f{a, 0}), Point::new_scale(Vec2f{0, b}));
+    float   diagonal_extra_length = std::max(0.f, m_rib_length - (float)unscaled(line_1.length())) / 2.f;
+    diagonal_extra_length         = scaled(get_current_layer_rib_len(this->m_z_pos, this->m_wipe_tower_height, diagonal_extra_length));
+    Point y_shift{0, scaled(this->m_y_shift)};
+
+    line_1.extend(double(diagonal_extra_length));
+    line_2.extend(double(diagonal_extra_length));
+    line_1.translate(-y_shift);
+    line_2.translate(-y_shift);
+
+    Polygon rib_1 = generate_rectange(line_1, diagonal_width);
+    Polygon rib_2 = generate_rectange(line_2, diagonal_width);
+    Polygon clip  = generate_rectange_polygon(wt_box.ld, wt_box.ru);
+
+    Polygons result = intersection(rib_1, clip);
+    Polygons rib_2_result = intersection(rib_2, clip);
+    result.insert(result.end(), rib_2_result.begin(), rib_2_result.end());
+    return result;
+}
+
 Polygon WipeTower2::generate_support_rib_wall(WipeTowerWriter2&                 writer,
                                               const WipeTower::box_coordinates& wt_box,
                                              double                 feedrate,
@@ -2521,11 +2563,15 @@ Polygon WipeTower2::generate_support_rib_wall(WipeTowerWriter2&                 
         return wall_polygon;
 
     if (skip_points) {
-        result_wall = contrust_gap_for_skip_points(wall_polygon, std::vector<Vec2f>(), m_wipe_tower_width, 2.5 * m_perimeter_width,
+        result_wall = contrust_gap_for_skip_points(wall_polygon, m_wall_skip_points, m_wipe_tower_width, 2.5 * m_perimeter_width,
                                                    insert_skip_polygon);
     } else {
         result_wall.push_back(to_polyline(wall_polygon));
         insert_skip_polygon = wall_polygon;
+    }
+    if (rib_wall) {
+        for (const Polygon &rib_polygon : generate_internal_rib_polygons(wt_box))
+            result_wall.push_back(to_polyline(rib_polygon));
     }
     writer.generate_path(result_wall, feedrate, retract_length, retract_speed, m_used_fillet);
     //if (m_cur_layer_id == 0) {
@@ -2534,6 +2580,42 @@ Polygon WipeTower2::generate_support_rib_wall(WipeTowerWriter2&                 
     //}
 
     return insert_skip_polygon;
+}
+
+void WipeTower2::get_wall_skip_points(const WipeTowerInfo& layer)
+{
+    m_wall_skip_points.clear();
+    if (!m_use_gap_wall)
+        return;
+
+    float process_depth = 0.f;
+    const size_t layer_idx = size_t(m_layer_info - m_plan.begin());
+    for (const WipeTowerInfo::ToolChange &tool_change : layer.tool_changes) {
+        const float wipe_depth = tool_change.required_depth;
+        if (wipe_depth <= WT_EPSILON)
+            continue;
+
+        Vec2f res;
+        switch (layer_idx % 4) {
+        case 0:
+            res = Vec2f(0.f, process_depth);
+            break;
+        case 1:
+            res = Vec2f(m_wipe_tower_width, process_depth + wipe_depth - m_perimeter_width);
+            break;
+        case 2:
+            res = Vec2f(m_wipe_tower_width, process_depth);
+            break;
+        case 3:
+            res = Vec2f(0.f, process_depth + wipe_depth - m_perimeter_width);
+            break;
+        default:
+            continue;
+        }
+
+        m_wall_skip_points.emplace_back(res);
+        process_depth += wipe_depth;
+    }
 }
 
 

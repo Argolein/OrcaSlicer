@@ -600,6 +600,9 @@ struct FakeWipeTower
     float brim_width;
     float rotation_angle;
     float cone_angle;
+    bool is_rib_wipe_tower{false};
+    float rib_width{0.f};
+    float rib_length{0.f};
     Vec2d plate_origin;
     Vec2f rib_offset{0.f,0.f};
     std::map<float , Polylines> outer_wall; //wipe tower's true outer wall and brim
@@ -614,7 +617,8 @@ struct FakeWipeTower
         brim_width   = bd;
         plate_origin = o;
     }
-    void set_fake_extrusion_data(const Vec2f& p, float w, float h, float lh, float d, const std::vector<std::pair<float, float>>& zad, float bd, float ra, float ca, const Vec2d& o)
+    void set_fake_extrusion_data(const Vec2f& p, float w, float h, float lh, float d, const std::vector<std::pair<float, float>>& zad, float bd, float ra, float ca, const Vec2d& o,
+                                 bool is_rib = false, float rw = 0.f, float rl = 0.f)
     {
         pos = p;
         width = w;
@@ -625,6 +629,9 @@ struct FakeWipeTower
         brim_width = bd;
         rotation_angle = ra;
         cone_angle = ca;
+        is_rib_wipe_tower = is_rib;
+        rib_width = rw;
+        rib_length = rl;
         plate_origin = o;
     }
 
@@ -688,6 +695,16 @@ struct FakeWipeTower
             ExtrusionPath path(ExtrusionRole::erWipeTower, 0.0, 0.0, lh);
             path.polyline = { minCorner, {maxCorner.x(), minCorner.y()}, maxCorner, {minCorner.x(), maxCorner.y()}, minCorner };
             paths.push_back({ path });
+
+            if (is_rib_wipe_tower) {
+                auto push_rib = [&](Point start, Point end) {
+                    ExtrusionPath rib_path(ExtrusionRole::erWipeTower, 0.0, 0.0, lh);
+                    rib_path.polyline = {start, end};
+                    paths.back().push_back(rib_path);
+                };
+                push_rib(minCorner, maxCorner);
+                push_rib({maxCorner.x(), minCorner.y()}, {minCorner.x(), maxCorner.y()});
+            }
 
             // We added the border, now add several parallel lines so we can detect an object that is fully inside the tower.
             // For now, simply use fixed spacing of 3mm.

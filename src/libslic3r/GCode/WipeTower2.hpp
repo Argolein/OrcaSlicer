@@ -220,11 +220,13 @@ private:
 	float  m_perimeter_speed    = 0.f;
     float  m_first_layer_speed  = 0.f;
     size_t m_first_layer_idx    = size_t(-1);
+    bool   m_use_gap_wall       = false;
     bool   m_flat_ironing       = false;
     bool   m_enable_tower_interface_features = false;
     bool   m_enable_tower_interface_cooldown_during_tower = false;
     bool   m_prev_layer_had_interface = false;
     bool   m_current_layer_has_interface = false;
+    std::vector<Vec2f> m_wall_skip_points;
 
 	int m_wall_type;
     bool   m_used_fillet                  = true;
@@ -372,6 +374,8 @@ private:
 		float spacing);
 
     Polygon generate_rib_polygon(const WipeTower::box_coordinates& wt_box);
+    Polygons generate_internal_rib_polygons(const WipeTower::box_coordinates& wt_box) const;
+    void get_wall_skip_points(const WipeTowerInfo& layer);
 };
 
 

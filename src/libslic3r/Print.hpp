@@ -770,8 +770,10 @@ struct WipeTowerData
     std::unique_ptr<WipeTower::ToolChangeResult>          final_purge;
     std::vector<float>                                    used_filament;
     int                                                   number_of_toolchanges;
+    bool                                                  use_wipe_tower2;
 
     // Depth of the wipe tower to pass to GLCanvas3D for exact bounding box:
+    float                                                 width;
     float                                                 depth;
     std::vector<std::pair<float, float>>                  z_and_depth_pairs;
     float                                                 brim_width;
@@ -785,6 +787,8 @@ struct WipeTowerData
         final_purge.reset(nullptr);
         used_filament.clear();
         number_of_toolchanges = -1;
+        use_wipe_tower2 = true;
+        width = 0.f;
         depth = 0.f;
         brim_width = 0.f;
         rib_offset = Vec2f::Zero();

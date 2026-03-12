@@ -51,12 +51,10 @@ namespace Slic3r {
 static bool use_wipe_tower2_for_print(const Print& print)
 {
     const PrintConfig& config = print.config();
-    // enable_tower_interface_features is supported by WipeTower2, so it does not
-    // need the block-based WipeTower generator. Only framework (internal ribs) and
-    // flat ironing require WipeTower; routing interface-features-only configs there
-    // would lose Cone wall support which only exists in WipeTower2.
-    const bool use_advanced_prime_tower = config.prime_tower_enable_framework.value
-        || config.prime_tower_flat_ironing.value;
+    // WipeTower2 already supports interface features, flat ironing, and Cone walls.
+    // Keep regular printers there unless framework/internal-ribs explicitly requires
+    // the block-based WipeTower generator.
+    const bool use_advanced_prime_tower = config.prime_tower_enable_framework.value;
     return !(print.is_BBL_printer() || print.is_QIDI_printer() || use_advanced_prime_tower);
 }
 
@@ -995,15 +993,14 @@ static StringObjectException layered_print_cleareance_valid(const Print &print, 
     const Vec3d         plate_origin = print.get_plate_origin();
     float               x            = config.wipe_tower_x.get_at(plate_index) + plate_origin(0);
     float               y            = config.wipe_tower_y.get_at(plate_index) + plate_origin(1);
-    float               width        = config.prime_tower_width.value;
+    float               width        = print.wipe_tower_data(filaments_count).width > EPSILON ?
+        print.wipe_tower_data(filaments_count).width :
+        config.prime_tower_width.value;
     float               a            = config.wipe_tower_rotation_angle.value;
     //float               v            = config.wiping_volume.value;
 
     float        depth                     = print.wipe_tower_data(filaments_count).depth;
     //float        brim_width                = print.wipe_tower_data(filaments_count).brim_width;
-
-    if (config.wipe_tower_wall_type.value == WipeTowerWallType::wtwRib)
-        width = depth;
 
     Polygons convex_hulls_temp;
     if (print.has_wipe_tower()) {
@@ -3090,6 +3087,7 @@ const WipeTowerData &Print::wipe_tower_data(size_t filaments_cnt) const
             double depth = std::sqrt(volume / layer_height * extra_spacing);
             if (need_wipe_tower || filaments_cnt > 1) {
                 float min_wipe_tower_depth = WipeTower::get_limit_depth_by_height(max_height);
+                const_cast<Print *>(this)->m_wipe_tower_data.width = m_config.prime_tower_width;
                 depth  = std::max((double) min_wipe_tower_depth, depth);
                 depth += rib_width / std::sqrt(2) + config().wipe_tower_extra_rib_length.value;
                 const_cast<Print *>(this)->m_wipe_tower_data.depth = depth;
@@ -3098,6 +3096,7 @@ const WipeTowerData &Print::wipe_tower_data(size_t filaments_cnt) const
         }
         else {
         double width        = m_config.prime_tower_width;
+        const_cast<Print *>(this)->m_wipe_tower_data.width = width;
         if (m_config.purge_in_prime_tower && m_config.single_extruder_multi_material) {
             // Calculating depth should take into account currently set wiping volumes.
             // For a long time, the initial preview would just use 900/width per toolchange (15mm on a 60mm wide tower)
@@ -3141,6 +3140,8 @@ void Print::_make_wipe_tower()
     const unsigned int number_of_extruders = (unsigned int)(m_config.filament_colour.values.size());
 
     const bool use_wipe_tower2 = use_wipe_tower2_for_print(*this);
+    m_wipe_tower_data.use_wipe_tower2 = use_wipe_tower2;
+    m_wipe_tower_data.priming = Slic3r::make_unique<std::vector<WipeTower::ToolChangeResult>>();
     // Let the ToolOrdering class know there will be initial priming extrusions at the start of the print.
     m_wipe_tower_data.tool_ordering = ToolOrdering(*this, (unsigned int) -1, use_wipe_tower2);
     m_wipe_tower_data.tool_ordering.sort_and_build_data(*this, (unsigned int)-1, use_wipe_tower2);
@@ -3289,6 +3290,7 @@ void Print::_make_wipe_tower()
         // Generate the wipe tower layers.
         m_wipe_tower_data.tool_changes.reserve(m_wipe_tower_data.tool_ordering.layer_tools().size());
         wipe_tower.generate_new(m_wipe_tower_data.tool_changes);
+        m_wipe_tower_data.width      = wipe_tower.width();
         m_wipe_tower_data.depth      = wipe_tower.get_depth();
         m_wipe_tower_data.brim_width = wipe_tower.get_brim_width();
         m_wipe_tower_data.bbx = wipe_tower.get_bbx();
@@ -3398,6 +3400,7 @@ void Print::_make_wipe_tower()
         // Generate the wipe tower layers.
         m_wipe_tower_data.tool_changes.reserve(m_wipe_tower_data.tool_ordering.layer_tools().size());
         wipe_tower.generate(m_wipe_tower_data.tool_changes);
+        m_wipe_tower_data.width             = wipe_tower.width();
         m_wipe_tower_data.depth             = wipe_tower.get_depth();
         m_wipe_tower_data.z_and_depth_pairs = wipe_tower.get_z_and_depth_pairs();
         m_wipe_tower_data.brim_width        = wipe_tower.get_brim_width();

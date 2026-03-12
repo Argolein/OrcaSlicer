@@ -51,9 +51,12 @@ namespace Slic3r {
 static bool use_wipe_tower2_for_print(const Print& print)
 {
     const PrintConfig& config = print.config();
+    // enable_tower_interface_features is supported by WipeTower2, so it does not
+    // need the block-based WipeTower generator. Only framework (internal ribs) and
+    // flat ironing require WipeTower; routing interface-features-only configs there
+    // would lose Cone wall support which only exists in WipeTower2.
     const bool use_advanced_prime_tower = config.prime_tower_enable_framework.value
-        || config.prime_tower_flat_ironing.value
-        || config.enable_tower_interface_features.value;
+        || config.prime_tower_flat_ironing.value;
     return !(print.is_BBL_printer() || print.is_QIDI_printer() || use_advanced_prime_tower);
 }
 

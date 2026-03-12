@@ -2785,7 +2785,12 @@ WipeTower::ToolChangeResult WipeTower::tool_change_new(size_t new_tool, bool sol
             }
     }
 
-    bool interface_layer = m_enable_tower_interface_features && (solid_toolchange || m_current_layer_has_interface);
+    // Only the specific solid toolchange triggers interface-layer behaviour.
+    // Using m_current_layer_has_interface here caused every toolchange in a layer
+    // that contained *any* solid block to receive interface treatment (extra purge,
+    // pre-extrusion, slow speed), which broke colours, layer ordering, and the
+    // Tower legend column.
+    bool interface_layer = solid_toolchange && m_enable_tower_interface_features;
     if (interface_layer && new_tool < m_filpar.size()) {
         float extra_purge_length = m_filpar[new_tool].tower_interface_purge_length;
         if (extra_purge_length > 0.f) {

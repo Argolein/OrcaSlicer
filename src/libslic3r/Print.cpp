@@ -3135,6 +3135,7 @@ bool Print::enable_timelapse_print() const
 void Print::_make_wipe_tower()
 {
     m_wipe_tower_data.clear();
+    GCodeProcessor::s_IsBBLPrinter = is_BBL_printer();
 
     // BBS
     const unsigned int number_of_extruders = (unsigned int)(m_config.filament_colour.values.size());

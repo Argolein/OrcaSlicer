@@ -25,6 +25,7 @@
 #include <limits>
 #include <unordered_set>
 #include <boost/filesystem/path.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/format.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/regex.hpp>
@@ -50,12 +51,12 @@ namespace Slic3r {
 
 static bool use_wipe_tower2_for_print(const Print& print)
 {
-    const PrintConfig& config = print.config();
-    // WipeTower2 already supports interface features, flat ironing, and Cone walls.
-    // Keep regular printers there unless framework/internal-ribs explicitly requires
-    // the block-based WipeTower generator.
-    const bool use_advanced_prime_tower = config.prime_tower_enable_framework.value;
-    return !(print.is_BBL_printer() || print.is_QIDI_printer() || use_advanced_prime_tower);
+    return !(print.is_BBL_printer() || print.is_QIDI_printer());
+}
+
+static bool detect_vendor_from_printer_model(const std::string &printer_model, const char *vendor_prefix)
+{
+    return !printer_model.empty() && boost::starts_with(printer_model, vendor_prefix);
 }
 
 template class PrintState<PrintStep, psCount>;
@@ -1595,9 +1596,17 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
         }
     }
 
+    // Imported project presets may inherit printer_model from their parent preset.
+    // Fall back to the active print config so Bambu/Qidi projects are validated as such
+    // even before the GUI preset bundle finishes resolving vendor state.
+    const ConfigOptionString *printer_model_opt = m_config.option<ConfigOptionString>("printer_model");
+    const std::string printer_model = printer_model_opt != nullptr ? printer_model_opt->value : std::string();
+    const bool is_bbl_like_print = is_BBL_printer() || detect_vendor_from_printer_model(printer_model, "Bambu Lab");
+    const bool is_qidi_like_print = is_QIDI_printer() || detect_vendor_from_printer_model(printer_model, "Qidi");
+
     // Orca: G92 E0 is not supported when using absolute extruder addressing
     // This check is copied from PrusaSlicer, the original author is Vojtech Bubnik
-    if(!is_BBL_printer()) {
+    if(!(is_bbl_like_print || is_qidi_like_print)) {
         bool before_layer_gcode_resets_extruder =
             boost::regex_search(m_config.before_layer_change_gcode.value, regex_g92e0);
         bool layer_gcode_resets_extruder = boost::regex_search(m_config.layer_change_gcode.value, regex_g92e0);
@@ -3135,6 +3144,10 @@ void Print::_make_wipe_tower()
 {
     m_wipe_tower_data.clear();
     GCodeProcessor::s_IsBBLPrinter = is_BBL_printer();
+    m_fake_wipe_tower.outer_wall.clear();
+    m_fake_wipe_tower.rib_offset = Vec2f::Zero();
+    m_fake_wipe_tower.use_wipe_tower2 = false;
+    m_fake_wipe_tower.has_internal_ribs = false;
 
     // BBS
     const unsigned int number_of_extruders = (unsigned int)(m_config.filament_colour.values.size());
@@ -3321,7 +3334,7 @@ void Print::_make_wipe_tower()
                                          wipe_tower.get_rib_width(), wipe_tower.get_rib_length(), config().wipe_tower_fillet_wall.value);
         const Vec3d origin                      = this->get_plate_origin();
         m_fake_wipe_tower.rib_offset = wipe_tower.get_rib_offset();
-        m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position() + m_fake_wipe_tower.rib_offset, wipe_tower.width(), wipe_tower.get_height(), wipe_tower.get_layer_height(),
+        m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position(), wipe_tower.width(), wipe_tower.get_height(), wipe_tower.get_layer_height(),
                                                   m_wipe_tower_data.depth,
                                                   m_wipe_tower_data.brim_width, {scale_(origin.x()), scale_(origin.y())});
         m_fake_wipe_tower.outer_wall = wipe_tower.get_outer_wall();
@@ -3434,14 +3447,28 @@ void Print::_make_wipe_tower()
                                          config().wipe_tower_wall_type.value == WipeTowerWallType::wtwRib,
                                          wipe_tower.get_rib_width(), wipe_tower.get_rib_length(),
                                          config().wipe_tower_fillet_wall.value);
-        const Vec3d origin                      = Vec3d::Zero();
+        const Vec3d origin                      = this->get_plate_origin();
         m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position(), wipe_tower.width(), wipe_tower.get_wipe_tower_height(),
                                                   config().initial_layer_print_height, m_wipe_tower_data.depth,
                                                   m_wipe_tower_data.z_and_depth_pairs, m_wipe_tower_data.brim_width,
                                                   config().wipe_tower_rotation_angle, config().wipe_tower_cone_angle,
                                                   {scale_(origin.x()), scale_(origin.y())},
                                                   config().wipe_tower_wall_type.value == WipeTowerWallType::wtwRib,
-                                                  wipe_tower.get_rib_width(), wipe_tower.get_rib_length());
+                                                  config().wipe_tower_wall_type.value == WipeTowerWallType::wtwCone,
+                                                  wipe_tower.get_rib_width(), wipe_tower.get_rib_length(),
+                                                  true,
+                                                  config().prime_tower_enable_framework.value,
+                                                  [this]() {
+                                                      std::vector<std::pair<float, float>> layers;
+                                                      layers.reserve(m_wipe_tower_data.tool_changes.size());
+                                                      for (const auto& layer_tool_changes : m_wipe_tower_data.tool_changes) {
+                                                          if (layer_tool_changes.empty())
+                                                              continue;
+                                                          const WipeTower::ToolChangeResult& tcr = layer_tool_changes.front();
+                                                          layers.emplace_back(std::max(0.f, tcr.print_z - tcr.layer_height), tcr.layer_height);
+                                                      }
+                                                      return layers;
+                                                  }());
     }
 }
 
@@ -4909,6 +4936,36 @@ ExtrusionLayers FakeWipeTower::getTrueExtrusionLayersFromWipeTower() const
 {
     ExtrusionLayers wtels;
     wtels.type = ExtrusionLayersType::WIPE_TOWER;
+    if (use_wipe_tower2) {
+        if (!wt2_bottom_z_and_height.empty()) {
+            for (size_t idx = 0; idx < wt2_bottom_z_and_height.size(); ++idx) {
+                const auto [bottom_z, layer_height] = wt2_bottom_z_and_height[idx];
+                ExtrusionPaths paths = getFakeExtrusionPathsFromWipeTower2Layer(bottom_z, layer_height, idx == 0 && bottom_z <= EPSILON);
+                if (paths.empty())
+                    continue;
+                ExtrusionLayer el;
+                el.paths    = std::move(paths);
+                el.bottom_z = bottom_z;
+                el.height   = layer_height;
+                el.layer    = nullptr;
+                wtels.push_back(std::move(el));
+            }
+        } else {
+            float current_z = 0.f;
+            for (ExtrusionPaths &paths : const_cast<FakeWipeTower *>(this)->getFakeExtrusionPathsFromWipeTower2()) {
+                if (paths.empty())
+                    continue;
+                ExtrusionLayer el;
+                el.paths    = std::move(paths);
+                el.bottom_z = current_z;
+                el.height   = el.paths.front().height;
+                el.layer    = nullptr;
+                current_z  += el.height;
+                wtels.push_back(std::move(el));
+            }
+        }
+        return wtels;
+    }
     std::vector<float> layer_heights;
     layer_heights.reserve(outer_wall.size());
     auto pre = outer_wall.begin();

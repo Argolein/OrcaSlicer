@@ -45,10 +45,16 @@ std::string SnapmakerPrinterAgent::combine_filament_type(const std::string& type
         return base + "-CF";
     if (sub == "GF")
         return base + "-GF";
-    if (sub == "SILK")
-        return base + " SILK";
     if (sub == "SNAPSPEED" || sub == "HS")
         return base + " HIGH SPEED";
+    if (sub == "SILK")
+        return base + " SILK";
+    if (sub == "WOOD")
+        return base + " WOOD";
+    if (sub == "MATTE")
+        return base + " MATTE";
+    if (sub == "MARBLE")
+        return base + " MARBLE";
 
     // Preserve unknown sub-type as a hint for central vendor/type matching.
     return base + " " + sub;

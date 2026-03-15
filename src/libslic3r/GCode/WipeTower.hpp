@@ -187,9 +187,6 @@ public:
 	// to be used before building begins. The entries must be added ordered in z.
 	void plan_toolchange(float z_par, float layer_height_par, unsigned int old_tool, unsigned int new_tool, float wipe_volume = 0.f, float prime_volume = 0.f);
 
-	// Iterates through prepared m_plan, generates ToolChangeResults and appends them to "result"
-	void generate(std::vector<std::vector<ToolChangeResult>> &result);
-
 	WipeTower::ToolChangeResult only_generate_out_wall(bool is_new_mode = false);
     Polygon generate_support_wall(WipeTowerWriter &writer, const box_coordinates &wt_box, double feedrate, bool first_layer);
     Polygon generate_support_wall_new(WipeTowerWriter &writer, const box_coordinates &wt_box, double feedrate, bool first_layer,bool rib_wall, bool extrude_perimeter, bool skip_points);
@@ -347,17 +344,26 @@ public:
 
 
 	void set_used_filament_ids(const std::vector<int> &used_filament_ids) { m_used_filament_ids = used_filament_ids; };
-    void set_filament_categories(const std::vector<int> & filament_categories) { m_filament_categories = filament_categories;};
+    void set_filament_categories(const std::vector<int> & filament_categories) {
+        m_filament_categories = filament_categories;
+        // Sync m_filpar[i].category so that block lookups in tool_change_new() etc.
+        // use the inferred category, not the raw (possibly 0) config value.
+        for (size_t i = 0; i < filament_categories.size() && i < m_filpar.size(); ++i)
+            if (filament_categories[i] != 0)
+                m_filpar[i].category = filament_categories[i];
+    };
 	std::vector<int> m_used_filament_ids;
     std::vector<int> m_filament_categories;
+
+    enum class WipeTowerLayerType : unsigned char { Normal, Contact, Solid, Contact_UP };
 
 	struct WipeTowerBlock
     {
         int              block_id{0};
         int              filament_adhesiveness_category{0};
-        std::vector<float>      layer_depths;
-		std::vector<bool>       solid_infill;
-        std::vector<float>      finish_depth{0}; // the start pos of finish frame for every layer
+        std::vector<float>           layer_depths;
+        std::vector<WipeTowerLayerType> layers_type; // Normal / Contact / Solid / Contact_UP
+        std::vector<float>           finish_depth{0}; // the start pos of finish frame for every layer
         float            depth{0};
         float            start_depth{0};
         float            cur_depth{0};
@@ -385,10 +391,12 @@ public:
 	void reset_block_status();
     int get_wall_filament_for_all_layer();
 	// for generate new wipe tower
-    void generate_new(std::vector<std::vector<WipeTower::ToolChangeResult>> &result);
+    void generate(std::vector<std::vector<WipeTower::ToolChangeResult>> &result);
 
 	void plan_tower_new();
-	void generate_wipe_tower_blocks();
+    void calc_block_infill_gap();
+    float get_block_gap_width(int tool, bool is_nozzlechange) const;
+	void generate_wipe_tower_blocks(bool add_solid_flag = true);
     void update_all_layer_depth(float wipe_tower_depth);
 
     ToolChangeResult   tool_change_new(size_t new_tool, bool solid_change = false, bool solid_nozzlechange=false);
@@ -495,12 +503,15 @@ private:
 	bool 			m_left_to_right   = true;
 	float			m_extra_spacing   = 1.f;
 	float           m_tpu_fixed_spacing = 2;
-    std::vector<Vec2f> m_wall_skip_points;
+    // Per-category infill line gap widths: .first = toolchange gap, .second = nozzle-change gap
+    std::unordered_map<int, std::pair<float,float>> m_block_infill_gap_width;
+    std::vector<std::vector<Vec2f>> m_wall_skip_points;
     std::map<float,Polylines> m_outer_wall;
     bool is_first_layer() const { return size_t(m_layer_info - m_plan.begin()) == m_first_layer_idx; }
     bool                       m_flat_ironing=false;
     bool                       m_enable_tower_interface_features=false;
     bool                       m_enable_tower_interface_cooldown_during_tower=false;
+    int                        m_wipe_tower_filament = 0;   // 1-based config value, 0 means auto
     bool                       m_prev_layer_had_interface=false;
     bool                       m_current_layer_has_interface=false;
 	// Calculates length of extrusion line to extrude given volume
@@ -585,7 +596,8 @@ private:
 		WipeTowerWriter &writer,
 		const box_coordinates  &cleaning_box,
 		float wipe_volume);
-    void get_wall_skip_points(const WipeTowerInfo &layer);
+    void get_wall_skip_points(const WipeTowerInfo &layer, int layer_id);
+    void get_all_wall_skip_points();
 };
 
 

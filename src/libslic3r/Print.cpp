@@ -13,7 +13,6 @@
 #include "Time.hpp"
 #include "GCode.hpp"
 #include "GCode/WipeTower.hpp"
-#include "GCode/WipeTower2.hpp"
 #include "Utils.hpp"
 #include "PrintConfig.hpp"
 #include "MaterialType.hpp"
@@ -47,6 +46,27 @@ using namespace nlohmann;
 #define L(s) Slic3r::I18N::translate(s)
 
 namespace Slic3r {
+
+static std::vector<std::vector<float>> extract_wipe_volumes_for_preview(const PrintConfig &config)
+{
+    std::vector<float> wiping_matrix(cast<float>(config.flush_volumes_matrix.values));
+    const float        scale = config.flush_multiplier.values.empty() ? 1.f : config.flush_multiplier.get_at(0);
+
+    if (!config.purge_in_prime_tower.value || !config.single_extruder_multi_material.value)
+        std::fill(wiping_matrix.begin(), wiping_matrix.end(), 0.f);
+
+    std::vector<std::vector<float>> wipe_volumes;
+    const unsigned int number_of_extruders = (unsigned int)(sqrt(wiping_matrix.size()) + EPSILON);
+    wipe_volumes.reserve(number_of_extruders);
+    for (size_t i = 0; i < number_of_extruders; ++i)
+        wipe_volumes.emplace_back(wiping_matrix.begin() + i * number_of_extruders, wiping_matrix.begin() + (i + 1) * number_of_extruders);
+
+    for (unsigned int i = 0; i < number_of_extruders; ++i)
+        for (unsigned int j = 0; j < number_of_extruders; ++j)
+            wipe_volumes[i][j] = std::max<float>(wipe_volumes[i][j] * scale, config.filament_minimal_purge_on_wipe_tower.get_at(j));
+
+    return wipe_volumes;
+}
 
 template class PrintState<PrintStep, psCount>;
 template class PrintState<PrintObjectStep, posCount>;
@@ -2737,12 +2757,6 @@ Points Print::first_layer_wipe_tower_corners(bool check_wipe_tower_existance) co
                                  };
 
         // Now the stabilization cone.
-        Vec2d center = (pts[0] + pts[2])/2.;
-        const auto [cone_R, cone_x_scale] = WipeTower2::get_wipe_tower_cone_base(m_config.prime_tower_width, m_wipe_tower_data.height, m_wipe_tower_data.depth, m_config.wipe_tower_cone_angle);
-        double r = cone_R + m_wipe_tower_data.brim_width;
-        for (double alpha = 0.; alpha<2*M_PI; alpha += M_PI/20.)
-            pts.emplace_back(center + r*Vec2d(std::cos(alpha)/cone_x_scale, std::sin(alpha)));
-
         for (Vec2d& pt : pts) {
             pt = Eigen::Rotation2Dd(Geometry::deg2rad(m_config.wipe_tower_rotation_angle.value)) * pt;
             //Orca: offset the wipe tower to the plate origin
@@ -3053,7 +3067,8 @@ const WipeTowerData &Print::wipe_tower_data(size_t filaments_cnt) const
     layer_height        = m_objects.front()->config().layer_height.value;
 
     auto   timelapse_type  = config().option<ConfigOptionEnum<TimelapseType>>("timelapse_type");
-    bool   need_wipe_tower = (timelapse_type ? (timelapse_type->value == TimelapseType::tlSmooth) : false) | (m_config.wipe_tower_wall_type.value == WipeTowerWallType::wtwRib);
+    bool   need_wipe_tower = (timelapse_type ? (timelapse_type->value == TimelapseType::tlSmooth) : false)
+                          || (m_config.wipe_tower_wall_type.value == WipeTowerWallType::wtwRib);
     double extra_spacing = config().option("prime_tower_infill_gap")->getFloat() / 100.;
     double rib_width     = config().option("wipe_tower_rib_width")->getFloat();
 
@@ -3078,43 +3093,44 @@ const WipeTowerData &Print::wipe_tower_data(size_t filaments_cnt) const
         if (filaments_cnt == 1 && enable_timelapse_print()) filament_depth_count = 1;
         double volume = wipe_volume * filament_depth_count;
         if (m_config.nozzle_diameter.values.size() == 2) volume += filament_change_volume * (int) (filaments_cnt / 2);
-
         if (m_config.wipe_tower_wall_type.value == WipeTowerWallType::wtwRib) {
             double depth = std::sqrt(volume / layer_height * extra_spacing);
             if (need_wipe_tower || filaments_cnt > 1) {
                 float min_wipe_tower_depth = WipeTower::get_limit_depth_by_height(max_height);
-                depth  = std::max((double) min_wipe_tower_depth, depth);
+                depth = std::max((double) min_wipe_tower_depth, depth);
                 depth += rib_width / std::sqrt(2) + config().wipe_tower_extra_rib_length.value;
                 const_cast<Print *>(this)->m_wipe_tower_data.depth = depth;
-                const_cast<Print *>(this)->m_wipe_tower_data.brim_width = m_config.prime_tower_brim_width;
             }
-        }
-        else {
-        double width        = m_config.prime_tower_width;
-        if (m_config.purge_in_prime_tower && m_config.single_extruder_multi_material) {
+        } else {
+            double width = m_config.prime_tower_width;
+            if (m_config.purge_in_prime_tower && m_config.single_extruder_multi_material) {
             // Calculating depth should take into account currently set wiping volumes.
             // For a long time, the initial preview would just use 900/width per toolchange (15mm on a 60mm wide tower)
             // and it worked well enough. Let's try to do slightly better by accounting for the purging volumes.
-            std::vector<std::vector<float>> wipe_volumes = WipeTower2::extract_wipe_volumes(m_config);
-            std::vector<float>              max_wipe_volumes;
-            for (const std::vector<float> &v : wipe_volumes)
-                max_wipe_volumes.emplace_back(*std::max_element(v.begin(), v.end()));
-            float maximum = std::accumulate(max_wipe_volumes.begin(), max_wipe_volumes.end(), 0.f);
-            maximum       = maximum * filaments_cnt / max_wipe_volumes.size();
-            
-            // Orca: it's overshooting a bit, so let's reduce it a bit
-            maximum *= 0.6; 
-            const_cast<Print *>(this)->m_wipe_tower_data.depth = maximum / (layer_height * width);
-        } else {
-            double depth = volume / (layer_height * width) * extra_spacing;
-            if (need_wipe_tower || m_wipe_tower_data.depth > EPSILON) {
-                float min_wipe_tower_depth = WipeTower::get_limit_depth_by_height(max_height);
-                depth = std::max((double) min_wipe_tower_depth, depth);
+                std::vector<std::vector<float>> wipe_volumes = extract_wipe_volumes_for_preview(m_config);
+                std::vector<float>              max_wipe_volumes;
+                for (const std::vector<float> &v : wipe_volumes)
+                    max_wipe_volumes.emplace_back(*std::max_element(v.begin(), v.end()));
+                if (!max_wipe_volumes.empty()) {
+                    float maximum = std::accumulate(max_wipe_volumes.begin(), max_wipe_volumes.end(), 0.f);
+                    maximum       = maximum * filaments_cnt / max_wipe_volumes.size();
+
+                    // Orca: it's overshooting a bit, so let's reduce it a bit
+                    maximum *= 0.6;
+                    const_cast<Print *>(this)->m_wipe_tower_data.depth = maximum / (layer_height * width);
+                } else {
+                    const_cast<Print *>(this)->m_wipe_tower_data.depth = volume / (layer_height * width) * extra_spacing;
+                }
+            } else {
+                double depth = volume / (layer_height * width) * extra_spacing;
+                if (need_wipe_tower || m_wipe_tower_data.depth > EPSILON) {
+                    float min_wipe_tower_depth = WipeTower::get_limit_depth_by_height(max_height);
+                    depth = std::max((double) min_wipe_tower_depth, depth);
+                }
+                const_cast<Print *>(this)->m_wipe_tower_data.depth = depth;
             }
-            const_cast<Print *>(this)->m_wipe_tower_data.depth = depth;
         }
         const_cast<Print *>(this)->m_wipe_tower_data.brim_width = m_config.prime_tower_brim_width;
-        }
         if (m_config.prime_tower_brim_width < 0) const_cast<Print *>(this)->m_wipe_tower_data.brim_width = WipeTower::get_auto_brim_by_height(max_height);
     }
     return m_wipe_tower_data;
@@ -3125,17 +3141,44 @@ bool Print::enable_timelapse_print() const
     return m_config.timelapse_type.value == TimelapseType::tlSmooth;
 }
 
+// Infer a filament adhesiveness category from a filament_type string when the profile
+// does not set filament_adhesiveness_category explicitly (i.e. value is 0).
+// Values mirror the BBL base profile categories so that all filament profiles,
+// regardless of origin, produce a structurally consistent multi-block wipe tower.
+static int infer_filament_category(const std::string &type)
+{
+    auto contains = [&type](const char *kw) {
+        return type.find(kw) != std::string::npos;
+    };
+    if (contains("PLA"))                                              return 100;
+    if (contains("ABS") || contains("ASA") || contains("HIPS"))      return 200;
+    if (contains("PETG") || contains("PCTG") || contains("PET"))     return 300;
+    if (contains("PA") || contains("Nylon"))                         return 400;
+    if (contains("PC"))                                               return 500;
+    if (contains("TPU") || contains("TPE") || contains("PEBA") ||
+        contains("Flex"))                                             return 600;
+    if (contains("PP") || contains("PE") || contains("EVA"))         return 700;
+    if (contains("PPS"))                                              return 800;
+    if (contains("PVA") || contains("BVOH") || contains("Support"))  return 900;
+    return 0; // unknown — put in the default single block
+}
+
 void Print::_make_wipe_tower()
 {
     m_wipe_tower_data.clear();
 
-    // BBS
     const unsigned int number_of_extruders = (unsigned int)(m_config.filament_colour.values.size());
+    // prime_multi_material: tells ToolOrdering to reorder all_extruders so the natural first printing
+    // extruder moves to the back.  The old WipeTower2 path always set this for non-BBL printers.
+    // We must keep the same behaviour here so that starting_filament (= all_extruders().back()) is the
+    // original first printing extruder, which GCode.cpp starts with (with or without priming).
+    const bool prime_multi_material = !is_BBL_printer() && !is_QIDI_printer();
+    // use_priming_path gates the actual priming extrusions (separate priming rectangle before the print).
+    const bool use_priming_path = prime_multi_material && m_config.single_extruder_multi_material_priming;
 
-    const auto bUseWipeTower2 = is_BBL_printer() || is_QIDI_printer() ? false : true;
     // Let the ToolOrdering class know there will be initial priming extrusions at the start of the print.
-    m_wipe_tower_data.tool_ordering = ToolOrdering(*this, (unsigned int) -1, bUseWipeTower2 ? true : false);
-    m_wipe_tower_data.tool_ordering.sort_and_build_data(*this, (unsigned int)-1, bUseWipeTower2 ? true : false);
+    m_wipe_tower_data.tool_ordering = ToolOrdering(*this, (unsigned int)-1, prime_multi_material);
+    m_wipe_tower_data.tool_ordering.sort_and_build_data(*this, (unsigned int)-1, prime_multi_material);
 
     if (!m_wipe_tower_data.tool_ordering.has_wipe_tower())
         // Don't generate any wipe tower.
@@ -3178,250 +3221,161 @@ void Print::_make_wipe_tower()
     }
     this->throw_if_canceled();
 
-    if (!bUseWipeTower2) {
-        // in BBL machine, wipe tower is only use to prime extruder. So just use a global wipe volume.
-        WipeTower wipe_tower(m_config, m_plate_index, m_origin, m_wipe_tower_data.tool_ordering.first_extruder(),
-                             m_wipe_tower_data.tool_ordering.empty() ? 0.f : m_wipe_tower_data.tool_ordering.back().print_z, m_wipe_tower_data.tool_ordering.all_extruders());
-        wipe_tower.set_has_tpu_filament(this->has_tpu_filament());
-        wipe_tower.set_filament_map(this->get_filament_maps());
-        // Set the extruder & material properties at the wipe tower object.
-        for (size_t i = 0; i < number_of_extruders; ++i)
-            wipe_tower.set_extruder(i, m_config);
+    // For non-BBL printers prime_multi_material=true causes ToolOrdering to reorder all_extruders so
+    // that the natural first printing extruder moves to the back.  The old WipeTower2 path always used
+    // all_extruders().back() as the starting filament (== original first printing extruder).  We must
+    // do the same here so the planned TCRs match what GCode.cpp will consume.
+    const unsigned int starting_filament = prime_multi_material
+        ? m_wipe_tower_data.tool_ordering.all_extruders().back()
+        : m_wipe_tower_data.tool_ordering.first_extruder();
 
-        // BBS: remove priming logic
-        // m_wipe_tower_data.priming = Slic3r::make_unique<std::vector<WipeTower::ToolChangeResult>>(
-        //    wipe_tower.prime((float)this->skirt_first_layer_height(), m_wipe_tower_data.tool_ordering.all_extruders(), false));
+    WipeTower wipe_tower(m_config, m_plate_index, m_origin, starting_filament,
+                         m_wipe_tower_data.tool_ordering.empty() ? 0.f : m_wipe_tower_data.tool_ordering.back().print_z,
+                         m_wipe_tower_data.tool_ordering.all_extruders());
+    wipe_tower.set_has_tpu_filament(this->has_tpu_filament());
+    wipe_tower.set_filament_map(this->get_filament_maps());
+    for (size_t i = 0; i < number_of_extruders; ++i)
+        wipe_tower.set_extruder(i, m_config);
 
-        std::set<int> used_filament_ids;
+    if (use_priming_path) {
+        m_wipe_tower_data.priming = Slic3r::make_unique<std::vector<WipeTower::ToolChangeResult>>(
+            wipe_tower.prime((float)this->skirt_first_layer_height(), m_wipe_tower_data.tool_ordering.all_extruders(), false));
+    } else {
+        m_wipe_tower_data.priming = Slic3r::make_unique<std::vector<WipeTower::ToolChangeResult>>();
+    }
 
-        // Lets go through the wipe tower layers and determine pairs of extruder changes for each
-        // to pass to wipe_tower (so that it can use it for planning the layout of the tower)
-        {
-        // Get wiping matrix to get number of extruders and convert vector<double> to vector<float>:
-        bool               is_mutli_extruder = m_config.nozzle_diameter.values.size() > 1;
-        size_t nozzle_nums = m_config.nozzle_diameter.values.size();
-        using FlushMatrix = std::vector<std::vector<float>>;
+    std::set<int> used_filament_ids;
+
+    {
+        const size_t nozzle_nums = m_config.nozzle_diameter.values.size();
+        using FlushMatrix        = std::vector<std::vector<float>>;
+        const auto flush_multiplier_for_nozzle = [this](size_t nozzle_id) {
+            return m_config.flush_multiplier.values.empty() ? 1.f :
+                   (float) m_config.flush_multiplier.get_at(std::min<size_t>(nozzle_id, m_config.flush_multiplier.values.size() - 1));
+        };
         std::vector<FlushMatrix> multi_extruder_flush;
+        multi_extruder_flush.reserve(nozzle_nums);
         for (size_t nozzle_id = 0; nozzle_id < nozzle_nums; ++nozzle_id) {
             std::vector<float> flush_matrix(cast<float>(get_flush_volumes_matrix(m_config.flush_volumes_matrix.values, nozzle_id, nozzle_nums)));
             std::vector<std::vector<float>> wipe_volumes;
+            wipe_volumes.reserve(number_of_extruders);
             for (unsigned int i = 0; i < number_of_extruders; ++i)
                 wipe_volumes.push_back(std::vector<float>(flush_matrix.begin() + i * number_of_extruders, flush_matrix.begin() + (i + 1) * number_of_extruders));
 
-            multi_extruder_flush.emplace_back(wipe_volumes);
+            multi_extruder_flush.emplace_back(std::move(wipe_volumes));
         }
 
-        std::vector<int>filament_maps = get_filament_maps();
+        std::vector<int> filament_maps = get_filament_maps();
 
         std::vector<unsigned int> nozzle_cur_filament_ids(nozzle_nums, -1);
-        unsigned int current_filament_id = m_wipe_tower_data.tool_ordering.first_extruder();
-        size_t cur_nozzle_id = filament_maps[current_filament_id] - 1;
+        unsigned int              current_filament_id = starting_filament;
+        size_t                    cur_nozzle_id       = filament_maps[current_filament_id] - 1;
         nozzle_cur_filament_ids[cur_nozzle_id] = current_filament_id;
 
-        for (auto& layer_tools : m_wipe_tower_data.tool_ordering.layer_tools()) { // for all layers
-            if (!layer_tools.has_wipe_tower) continue;
-            bool first_layer = &layer_tools == &m_wipe_tower_data.tool_ordering.front();
-            wipe_tower.plan_toolchange((float)layer_tools.print_z, (float)layer_tools.wipe_tower_layer_height, current_filament_id, current_filament_id);
+        for (auto &layer_tools : m_wipe_tower_data.tool_ordering.layer_tools()) {
+            if (!layer_tools.has_wipe_tower)
+                continue;
 
+            wipe_tower.plan_toolchange((float) layer_tools.print_z, (float) layer_tools.wipe_tower_layer_height, current_filament_id, current_filament_id);
             used_filament_ids.insert(layer_tools.extruders.begin(), layer_tools.extruders.end());
 
             for (const auto filament_id : layer_tools.extruders) {
                 if (filament_id == current_filament_id)
                     continue;
 
-                int          nozzle_id = filament_maps[filament_id] - 1;
-                unsigned int pre_filament_id = nozzle_cur_filament_ids[nozzle_id];
+                const int nozzle_id = filament_maps[filament_id] - 1;
+                const unsigned int previous_filament_id = nozzle_cur_filament_ids[nozzle_id];
+                float wipe_volume  = m_config.prime_volume;
+                float purge_volume = 0.f;
 
-                float volume_to_purge = 0;
-                if (pre_filament_id != (unsigned int)(-1) && pre_filament_id != filament_id) {
-                    volume_to_purge = multi_extruder_flush[nozzle_id][pre_filament_id][filament_id];
-                    volume_to_purge *= m_config.flush_multiplier.get_at(nozzle_id);
-                    volume_to_purge = pre_filament_id == -1 ? 0 :
-                        layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_filament_id, filament_id, volume_to_purge);
+                if (m_config.purge_in_prime_tower && m_config.single_extruder_multi_material) {
+                    if (previous_filament_id != (unsigned int) (-1) && previous_filament_id != filament_id) {
+                        wipe_volume = multi_extruder_flush[nozzle_id][previous_filament_id][filament_id];
+                        wipe_volume *= flush_multiplier_for_nozzle(nozzle_id);
+                        wipe_volume -= (float) m_config.filament_minimal_purge_on_wipe_tower.get_at(filament_id);
+                        wipe_volume  = std::max(0.f, wipe_volume);
+                        wipe_volume = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_filament_id, filament_id, wipe_volume);
+                        wipe_volume += (float) m_config.filament_minimal_purge_on_wipe_tower.get_at(filament_id);
+                    }
+                } else if (previous_filament_id != (unsigned int) (-1) && previous_filament_id != filament_id) {
+                    purge_volume = multi_extruder_flush[nozzle_id][previous_filament_id][filament_id];
+                    purge_volume *= flush_multiplier_for_nozzle(nozzle_id);
+                    purge_volume = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_filament_id, filament_id, purge_volume);
+
+                    const float grab_purge_volume = m_config.grab_length.get_at(nozzle_id) * 2.4f;
+                    purge_volume = std::max(0.f, purge_volume - grab_purge_volume);
                 }
 
-                //During the filament change, the extruder will extrude an extra length of grab_length for the corresponding detection, so the purge can reduce this length.
-                float grab_purge_volume = m_config.grab_length.get_at(nozzle_id) * 2.4; //(diameter/2)^2*PI=2.4
-                volume_to_purge = std::max(0.f, volume_to_purge - grab_purge_volume);
-
-                wipe_tower.plan_toolchange((float)layer_tools.print_z, (float)layer_tools.wipe_tower_layer_height, current_filament_id, filament_id,
-                    m_config.prime_volume, volume_to_purge);
-                current_filament_id = filament_id;
+                wipe_tower.plan_toolchange((float) layer_tools.print_z, (float) layer_tools.wipe_tower_layer_height, current_filament_id, filament_id,
+                                           wipe_volume, purge_volume);
+                current_filament_id              = filament_id;
                 nozzle_cur_filament_ids[nozzle_id] = filament_id;
             }
+
             layer_tools.wiping_extrusions().ensure_perimeters_infills_order(*this);
 
-            // if enable timelapse, slice all layer
             if (m_config.enable_wrapping_detection || enable_timelapse_print()) {
-                if (layer_tools.wipe_tower_partitions == 0) wipe_tower.set_last_layer_extruder_fill(false);
+                if (layer_tools.wipe_tower_partitions == 0)
+                    wipe_tower.set_last_layer_extruder_fill(false);
                 continue;
             }
 
             if (&layer_tools == &m_wipe_tower_data.tool_ordering.back() || (&layer_tools + 1)->wipe_tower_partitions == 0)
                 break;
         }
-        }
-
-        wipe_tower.set_used_filament_ids(std::vector<int>(used_filament_ids.begin(), used_filament_ids.end()));
-
-        std::vector<int> categories;
-        for (size_t i = 0; i < m_config.filament_adhesiveness_category.values.size(); ++i) {
-            categories.push_back(m_config.filament_adhesiveness_category.get_at(i));
-        }
-        wipe_tower.set_filament_categories(categories);
-
-        // Generate the wipe tower layers.
-        m_wipe_tower_data.tool_changes.reserve(m_wipe_tower_data.tool_ordering.layer_tools().size());
-        wipe_tower.generate_new(m_wipe_tower_data.tool_changes);
-        m_wipe_tower_data.depth      = wipe_tower.get_depth();
-        m_wipe_tower_data.brim_width = wipe_tower.get_brim_width();
-        m_wipe_tower_data.bbx = wipe_tower.get_bbx();
-        m_wipe_tower_data.rib_offset = wipe_tower.get_rib_offset();
-
-        // Unload the current filament over the purge tower.
-        coordf_t layer_height = m_objects.front()->config().layer_height.value;
-        if (m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions > 0) {
-            // The wipe tower goes up to the last layer of the print.
-            if (wipe_tower.layer_finished()) {
-                // The wipe tower is printed to the top of the print and it has no space left for the final extruder purge.
-                // Lift Z to the next layer.
-                wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z + layer_height), float(layer_height), 0, false,
-                                     true);
-            } else {
-                // There is yet enough space at this layer of the wipe tower for the final purge.
-            }
-        } else {
-            // The wipe tower does not reach the last print layer, perform the pruge at the last print layer.
-            assert(m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions == 0);
-            wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z), float(layer_height), 0, false, true);
-        }
-        m_wipe_tower_data.final_purge = Slic3r::make_unique<WipeTower::ToolChangeResult>(wipe_tower.tool_change((unsigned int) (-1)));
-
-        m_wipe_tower_data.used_filament         = wipe_tower.get_used_filament();
-        m_wipe_tower_data.number_of_toolchanges = wipe_tower.get_number_of_toolchanges();
-        m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(), wipe_tower.get_height(), wipe_tower.get_brim_width(), config().wipe_tower_wall_type.value == WipeTowerWallType::wtwRib,
-                                         wipe_tower.get_rib_width(), wipe_tower.get_rib_length(), config().wipe_tower_fillet_wall.value);
-        const Vec3d origin                      = this->get_plate_origin();
-        m_fake_wipe_tower.rib_offset = wipe_tower.get_rib_offset();
-        m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position() + m_fake_wipe_tower.rib_offset, wipe_tower.width(), wipe_tower.get_height(), wipe_tower.get_layer_height(),
-                                                  m_wipe_tower_data.depth,
-                                                  m_wipe_tower_data.brim_width, {scale_(origin.x()), scale_(origin.y())});
-        m_fake_wipe_tower.outer_wall = wipe_tower.get_outer_wall();
-    } else {
-        // Get wiping matrix to get number of extruders and convert vector<double> to vector<float>:
-        std::vector<float> flush_matrix(cast<float>(m_config.flush_volumes_matrix.values));
-        // Extract purging volumes for each extruder pair:
-        std::vector<std::vector<float>> wipe_volumes;
-        for (unsigned int i = 0; i<number_of_extruders; ++i)
-            wipe_volumes.push_back(std::vector<float>(flush_matrix.begin()+i*number_of_extruders, flush_matrix.begin()+(i+1)*number_of_extruders));
-
-        // Orca: itertate over wipe_volumes and change the non-zero values to the prime_volume
-        if ((!m_config.purge_in_prime_tower || !m_config.single_extruder_multi_material) && !is_BBL_printer() && !is_QIDI_printer()) {
-            for (unsigned int i = 0; i < number_of_extruders; ++i) {
-                for (unsigned int j = 0; j < number_of_extruders; ++j) {
-                    if (wipe_volumes[i][j] > 0) {
-                        wipe_volumes[i][j] = m_config.prime_volume;
-                    }
-                }
-            }
-        }
-        // Initialize the wipe tower.
-        WipeTower2 wipe_tower(m_config, m_default_region_config, m_plate_index, m_origin, wipe_volumes,
-                              m_wipe_tower_data.tool_ordering.first_extruder());
-
-        // wipe_tower.set_retract();
-        // wipe_tower.set_zhop();
-
-        // Set the extruder & material properties at the wipe tower object.
-        for (size_t i = 0; i < number_of_extruders; ++i)
-            wipe_tower.set_extruder(i, m_config);
-
-        m_wipe_tower_data.priming = Slic3r::make_unique<std::vector<WipeTower::ToolChangeResult>>(
-            wipe_tower.prime((float)this->skirt_first_layer_height(), m_wipe_tower_data.tool_ordering.all_extruders(), false));
-
-        // Lets go through the wipe tower layers and determine pairs of extruder changes for each
-        // to pass to wipe_tower (so that it can use it for planning the layout of the tower)
-        {
-            unsigned int current_extruder_id = m_wipe_tower_data.tool_ordering.all_extruders().back();
-            for (auto &layer_tools : m_wipe_tower_data.tool_ordering.layer_tools()) { // for all layers
-                if (!layer_tools.has_wipe_tower)
-                    continue;
-                bool first_layer = &layer_tools == &m_wipe_tower_data.tool_ordering.front();
-                wipe_tower.plan_toolchange((float) layer_tools.print_z, (float) layer_tools.wipe_tower_layer_height, current_extruder_id,
-                                           current_extruder_id, false);
-                for (const auto extruder_id : layer_tools.extruders) {
-                    if ((first_layer && extruder_id == m_wipe_tower_data.tool_ordering.all_extruders().back()) || extruder_id !=
-                        current_extruder_id) {
-                        float volume_to_wipe = m_config.prime_volume;
-                        if (m_config.purge_in_prime_tower && m_config.single_extruder_multi_material) {
-                            volume_to_wipe = wipe_volumes[current_extruder_id][extruder_id]; // total volume to wipe after this toolchange
-                            volume_to_wipe *= m_config.flush_multiplier.get_at(0);
-                            // Not all of that can be used for infill purging:
-                            volume_to_wipe -= (float) m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
-
-                            // try to assign some infills/objects for the wiping:
-                            volume_to_wipe = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_extruder_id, extruder_id,
-                                                                                                    volume_to_wipe);
-
-                            // add back the minimal amount toforce on the wipe tower:
-                            volume_to_wipe += (float) m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
-                        }
-
-                        // request a toolchange at the wipe tower with at least volume_to_wipe purging amount
-                        wipe_tower.plan_toolchange((float) layer_tools.print_z, (float) layer_tools.wipe_tower_layer_height,
-                                                   current_extruder_id, extruder_id, volume_to_wipe);
-                        current_extruder_id = extruder_id;
-                    }
-                }
-                layer_tools.wiping_extrusions().ensure_perimeters_infills_order(*this);
-                if (&layer_tools == &m_wipe_tower_data.tool_ordering.back() || (&layer_tools + 1)->wipe_tower_partitions == 0)
-                    break;
-            }
-        }
-
-        // Generate the wipe tower layers.
-        m_wipe_tower_data.tool_changes.reserve(m_wipe_tower_data.tool_ordering.layer_tools().size());
-        wipe_tower.generate(m_wipe_tower_data.tool_changes);
-        m_wipe_tower_data.depth             = wipe_tower.get_depth();
-        m_wipe_tower_data.z_and_depth_pairs = wipe_tower.get_z_and_depth_pairs();
-        m_wipe_tower_data.brim_width        = wipe_tower.get_brim_width();
-        m_wipe_tower_data.height            = wipe_tower.get_wipe_tower_height();
-        m_wipe_tower_data.bbx               = wipe_tower.get_bbx();
-        m_wipe_tower_data.rib_offset        = wipe_tower.get_rib_offset();
-
-        // Unload the current filament over the purge tower.
-        coordf_t layer_height = m_objects.front()->config().layer_height.value;
-        if (m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions > 0) {
-            // The wipe tower goes up to the last layer of the print.
-            if (wipe_tower.layer_finished()) {
-                // The wipe tower is printed to the top of the print and it has no space left for the final extruder purge.
-                // Lift Z to the next layer.
-                wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z + layer_height), float(layer_height), 0, false,
-                                     true);
-            } else {
-                // There is yet enough space at this layer of the wipe tower for the final purge.
-            }
-        } else {
-            // The wipe tower does not reach the last print layer, perform the pruge at the last print layer.
-            assert(m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions == 0);
-            wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z), float(layer_height), 0, false, true);
-        }
-        m_wipe_tower_data.final_purge = Slic3r::make_unique<WipeTower::ToolChangeResult>(wipe_tower.tool_change((unsigned int) (-1)));
-
-        m_wipe_tower_data.used_filament         = wipe_tower.get_used_filament();
-        m_wipe_tower_data.number_of_toolchanges = wipe_tower.get_number_of_toolchanges();
-        m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(),
-                                         wipe_tower.get_wipe_tower_height(), wipe_tower.get_brim_width(),
-                                         config().wipe_tower_wall_type.value == WipeTowerWallType::wtwRib,
-                                         wipe_tower.get_rib_width(), wipe_tower.get_rib_length(),
-                                         config().wipe_tower_fillet_wall.value);
-        const Vec3d origin                      = Vec3d::Zero();
-        m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position(), wipe_tower.width(), wipe_tower.get_wipe_tower_height(),
-                                                  config().initial_layer_print_height, m_wipe_tower_data.depth,
-                                                  m_wipe_tower_data.z_and_depth_pairs, m_wipe_tower_data.brim_width,
-                                                  config().wipe_tower_rotation_angle, config().wipe_tower_cone_angle,
-                                                  {scale_(origin.x()), scale_(origin.y())});
     }
+
+    wipe_tower.set_used_filament_ids(std::vector<int>(used_filament_ids.begin(), used_filament_ids.end()));
+
+    // Build filament adhesiveness categories.
+    // If a profile doesn't set filament_adhesiveness_category (value == 0), fall back to
+    // inferring it from filament_type so that all profiles — regardless of origin — produce
+    // the correct multi-block tower structure (e.g. PLA vs ABS → separate blocks).
+    std::vector<int> categories;
+    for (size_t i = 0; i < m_config.filament_adhesiveness_category.values.size(); ++i) {
+        int cat = m_config.filament_adhesiveness_category.get_at(i);
+        if (cat == 0 && i < m_config.filament_type.values.size())
+            cat = infer_filament_category(m_config.filament_type.get_at(i));
+        categories.push_back(cat);
+    }
+    wipe_tower.set_filament_categories(categories);
+
+    m_wipe_tower_data.tool_changes.reserve(m_wipe_tower_data.tool_ordering.layer_tools().size());
+    // Ensure WipeTowerWriter emits the correct role-tag format (BBL: "; FEATURE: " vs
+    // non-BBL: ";TYPE:") so that GCodeProcessor can attribute wipe-tower extrusions to
+    // the tower for filament-usage stats.  This must be set before generate() is called
+    // because WipeTowerWriter reads the flag in its constructor.
+    GCodeProcessor::s_IsBBLPrinter = is_BBL_printer();
+    wipe_tower.generate(m_wipe_tower_data.tool_changes);
+    m_wipe_tower_data.depth             = wipe_tower.get_depth();
+    m_wipe_tower_data.z_and_depth_pairs.clear();
+    m_wipe_tower_data.brim_width        = wipe_tower.get_brim_width();
+    m_wipe_tower_data.height            = wipe_tower.get_height();
+    m_wipe_tower_data.bbx               = wipe_tower.get_bbx();
+    m_wipe_tower_data.rib_offset        = wipe_tower.get_rib_offset();
+
+    coordf_t layer_height = m_objects.front()->config().layer_height.value;
+    if (m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions > 0) {
+        if (wipe_tower.layer_finished()) {
+            wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z + layer_height), float(layer_height), 0, false, true);
+        }
+    } else {
+        assert(m_wipe_tower_data.tool_ordering.back().wipe_tower_partitions == 0);
+        wipe_tower.set_layer(float(m_wipe_tower_data.tool_ordering.back().print_z), float(layer_height), 0, false, true);
+    }
+    m_wipe_tower_data.final_purge = Slic3r::make_unique<WipeTower::ToolChangeResult>(wipe_tower.tool_change((unsigned int) (-1)));
+
+    m_wipe_tower_data.used_filament         = wipe_tower.get_used_filament();
+    m_wipe_tower_data.number_of_toolchanges = wipe_tower.get_number_of_toolchanges();
+    m_wipe_tower_data.construct_mesh(wipe_tower.width(), wipe_tower.get_depth(), wipe_tower.get_height(), wipe_tower.get_brim_width(),
+                                     config().wipe_tower_wall_type.value == WipeTowerWallType::wtwRib, wipe_tower.get_rib_width(),
+                                     wipe_tower.get_rib_length(), config().wipe_tower_fillet_wall.value);
+    const Vec3d origin = this->get_plate_origin();
+    m_fake_wipe_tower.rib_offset = wipe_tower.get_rib_offset();
+    m_fake_wipe_tower.set_fake_extrusion_data(wipe_tower.position() + m_fake_wipe_tower.rib_offset, wipe_tower.width(), wipe_tower.get_height(),
+                                              wipe_tower.get_layer_height(), m_wipe_tower_data.depth, m_wipe_tower_data.brim_width,
+                                              {scale_(origin.x()), scale_(origin.y())});
+    m_fake_wipe_tower.outer_wall = wipe_tower.get_outer_wall();
 }
 
 // Generate a recommended G-code output file name based on the format template, default extension, and template parameters

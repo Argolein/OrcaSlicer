@@ -1236,6 +1236,18 @@ bool Sidebar::priv::switch_diameter(bool single)
             diameter = diameter_left;
         }
     }
+    
+    // ORCA: Check if the selected diameter matches the current nozzle diameter in the config
+    Preset& printer_preset = wxGetApp().preset_bundle->printers.get_edited_preset();
+    auto* nozzle_diameter = dynamic_cast<const ConfigOptionFloats*>(printer_preset.config.option("nozzle_diameter"));
+    if (nozzle_diameter && nozzle_diameter->size() > 0) {
+        auto current_nozzle_dia = get_diameter_string(nozzle_diameter->values[0]);
+        // If the selected diameter is the same as current nozzle, don't switch profiles
+        if (current_nozzle_dia == diameter.ToStdString()) {
+            return true;
+        }
+    }
+    
     auto preset          = wxGetApp().preset_bundle->get_similar_printer_preset({}, diameter.ToStdString());
     if (preset == nullptr) {
         // ORCA add a text. this appears when user tries to change nozzle value but config doesnt have a inherited or compatible preset
@@ -2096,7 +2108,7 @@ Sidebar::Sidebar(Plater *parent)
     p->m_panel_filament_content = new wxScrolledWindow( p->scrolled, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
     p->m_panel_filament_content->SetScrollbars(0, 100, 1, 2);
     p->m_panel_filament_content->SetScrollRate(0, 5);
-    p->m_panel_filament_content->SetMaxSize(wxSize{-1, FromDIP(174)});
+    //p->m_panel_filament_content->SetMaxSize(wxSize{-1, FromDIP(174)});
     p->m_panel_filament_content->SetBackgroundColour(wxColour(255, 255, 255));
 
     //wxBoxSizer* bSizer_filament_content;
@@ -2118,10 +2130,9 @@ Sidebar::Sidebar(Plater *parent)
     sizer_filaments2->Add(p->sizer_filaments, 0, wxEXPAND, 0);
     p->m_panel_filament_content->SetSizer(sizer_filaments2);
     p->m_panel_filament_content->Layout();
-    auto min_size = sizer_filaments2->GetMinSize();
-    if (min_size.y > p->m_panel_filament_content->GetMaxHeight())
-        min_size.y = p->m_panel_filament_content->GetMaxHeight();
-    p->m_panel_filament_content->SetMinSize(min_size);
+    
+    update_filaments_area_height(); // ORCA
+
     scrolled_sizer->Add(p->m_panel_filament_content, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(SidebarProps::ContentMarginV())); // ORCA use vertical margin on parent otherwise it shows scrollbar even on 1 filament
     }
 
@@ -2563,22 +2574,23 @@ void Sidebar::update_presets(Preset::Type preset_type)
         auto update_extruder_diameter = [&diameters, &diameter, &nozzle_diameter](int extruder_index,ExtruderGroup & extruder) {
             extruder.combo_diameter->Clear();
             int select = -1;
-            // ORCA if user defined a custom nozzle in printer config select it instead inherited one. this will show correct nozzle diameter in combobox if its exist in nozzle diameters list
+            // ORCA get the actual nozzle diameter from printer config
             auto nozzle_dia = get_diameter_string(nozzle_diameter->values[extruder_index]);
-            if(nozzle_dia != diameter && std::find(diameters.begin(), diameters.end(), nozzle_dia) != diameters.end())
-                diameter = nozzle_dia;
             // ORCA try to add nozzle diameter from config if list is empty. fixes blank nozzle combo box when preset has no alias
             if(diameters[0].empty() && !nozzle_dia.empty()){
                 diameters[0] = nozzle_dia;
-                diameter = nozzle_dia;
+            }
+            // Orca: Check if the actual nozzle diameter exists in the list, if not add it as a custom option
+            if (std::find(diameters.begin(), diameters.end(), nozzle_dia) == diameters.end() && !nozzle_dia.empty()) {
+                diameters.push_back(nozzle_dia);
             }
             for (size_t i = 0; i < diameters.size(); ++i) {
-                if (diameters[i] == diameter)
+                if (diameters[i] == nozzle_dia)
                     select = extruder.combo_diameter->GetCount();
                 extruder.combo_diameter->Append(diameters[i], {});
             }
             extruder.combo_diameter->SetSelection(select);
-            extruder.diameter = diameter;
+            extruder.diameter = nozzle_dia;
         };
         auto image_path = get_cur_select_bed_image();
         if (is_dual_extruder) {
@@ -2758,6 +2770,23 @@ void Sidebar::change_top_border_for_mode_sizer(bool increase_border)
 #endif
 }
 
+void Sidebar::update_filaments_area_height()
+// ORCA
+{
+    // ORCA use a height with user preference
+    auto left_sizer          = p->sizer_filaments->GetItem((size_t) 0)->GetSizer();
+    auto combo_sizer         = left_sizer->GetItem((size_t) 0)->GetSizer();
+    int  preferred_rows      = std::ceil(0.5 * std::stoi(wxGetApp().app_config->get("filaments_area_preferred_count")));
+    auto height_with_borders = combo_sizer->GetSize().GetHeight(); // gets height from sizer instead static numbers
+    p->m_panel_filament_content->SetMaxSize(wxSize{-1, preferred_rows * height_with_borders});
+
+    // fixes wxScrolledWindow not shrinks its height to content size
+    auto min_size = p->m_panel_filament_content->GetSizer()->GetMinSize();
+    if (min_size.y > p->m_panel_filament_content->GetMaxHeight())
+        min_size.y = p->m_panel_filament_content->GetMaxHeight();
+    p->m_panel_filament_content->SetMinSize({-1, min_size.y});
+}
+
 void Sidebar::msw_rescale()
 {
     SetMinSize(wxSize(42 * wxGetApp().em_unit(), -1));
@@ -2827,6 +2856,9 @@ void Sidebar::msw_rescale()
 
     for (PlaterPresetComboBox* combo : p->combos_filament)
         combo->msw_rescale();
+
+    p->m_panel_filament_content->Layout();
+    update_filaments_area_height(); // ORCA resize after combos scaled
 
     // BBS
     //p->frequently_changed_parameters->msw_rescale();
@@ -3006,10 +3038,7 @@ void Sidebar::on_filament_count_change(size_t num_filaments)
         }
     }
 
-    auto min_size = p->m_panel_filament_content->GetSizer()->GetMinSize();
-    if (min_size.y > p->m_panel_filament_content->GetMaxHeight())
-        min_size.y = p->m_panel_filament_content->GetMaxHeight();
-    p->m_panel_filament_content->SetMinSize(min_size);
+    update_filaments_area_height();  // ORCA
 
     Layout();
     p->m_panel_filament_title->Refresh();
@@ -3069,10 +3098,7 @@ void Sidebar::on_filaments_delete(size_t filament_id)
         p->combos_filament[idx]->update();
     }
 
-    auto min_size = p->m_panel_filament_content->GetSizer()->GetMinSize();
-    if (min_size.y > p->m_panel_filament_content->GetMaxHeight())
-        min_size.y = p->m_panel_filament_content->GetMaxHeight();
-    p->m_panel_filament_content->SetMinSize(min_size);
+    update_filaments_area_height(); // ORCA
 
     Layout();
     p->m_panel_filament_title->Refresh();
@@ -3506,11 +3532,8 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     for (auto& c : p->combos_filament)
         c->update();
     // Expand filament list
-    p->m_panel_filament_content->SetMaxSize({-1, FromDIP(174)});
-    auto min_size = p->m_panel_filament_content->GetSizer()->GetMinSize();
-    if (min_size.y > p->m_panel_filament_content->GetMaxHeight())
-        min_size.y = p->m_panel_filament_content->GetMaxHeight();
-    p->m_panel_filament_content->SetMinSize({-1, min_size.y});
+    update_filaments_area_height(); // ORCA
+
     // BBS:Synchronized consumables information
     // auto calculation of flushing volumes
     for (int i = 0; i < p->combos_filament.size(); ++i) {
@@ -4640,6 +4663,7 @@ struct Plater::priv
     bool can_layers_editing() const;
     bool can_fix_through_netfabb() const;
     bool can_simplify() const;
+    bool can_smooth_mesh() const;
     bool can_set_instance_to_object() const;
     bool can_mirror() const;
     bool can_reload_from_disk() const;
@@ -10079,7 +10103,7 @@ void Plater::priv::update_plugin_when_launch(wxCommandEvent &event)
 
 void Plater::priv::show_install_plugin_hint(wxCommandEvent &event)
 {
-    notification_manager->bbl_show_plugin_install_notification(into_u8(_L("Network Plug-in is not detected. Network related features are unavailable.")));
+    notification_manager->bbl_show_plugin_install_notification(into_u8(_L("The network plug-in was not detected. Network related features are unavailable.")));
 }
 
 void Plater::priv::show_preview_only_hint(wxCommandEvent &event)
@@ -10397,13 +10421,13 @@ void Plater::priv::set_project_name(const wxString& project_name)
     BOOST_LOG_TRIVIAL(trace) << __FUNCTION__ << __LINE__ << " project is:" << project_name;
     m_project_name = project_name;
     //update topbar title
-#ifdef __WINDOWS__
-    wxGetApp().mainframe->SetTitle(m_project_name + " - OrcaSlicer");
-    wxGetApp().mainframe->topbar()->SetTitle(m_project_name);
-#else
+#ifdef __APPLE__
     wxGetApp().mainframe->SetTitle(m_project_name);
     if (!m_project_name.IsEmpty())
         wxGetApp().mainframe->update_title_colour_after_set_title();
+#else
+    wxGetApp().mainframe->SetTitle(m_project_name + " - OrcaSlicer");
+    wxGetApp().mainframe->topbar()->SetTitle(m_project_name);
 #endif
 }
 
@@ -10418,11 +10442,12 @@ void Plater::priv::update_title_dirty_status()
     else
         title = m_project_name;
 
-#ifdef __WINDOWS__
-    wxGetApp().mainframe->topbar()->SetTitle(title);
+#ifdef __APPLE__
+    wxGetApp().mainframe->SetTitle(title);
+    wxGetApp().mainframe->update_title_colour_after_set_title();
 #else
     wxGetApp().mainframe->SetTitle(title);
-    wxGetApp().mainframe->update_title_colour_after_set_title();    
+    wxGetApp().mainframe->topbar()->SetTitle(title);
 #endif    
 }
 
@@ -10661,7 +10686,7 @@ bool Plater::priv::check_ams_status_impl(bool is_slice_all)
                     : MessageDialog(parent,
                                     _L("The nozzle type and AMS quantity information has not been synced from the connected printer.\n"
                                        "After syncing, software can optimize printing time and filament usage when slicing.\n"
-                                       "Would you like to sync now ?"),
+                                       "Would you like to sync now?"),
                                     _L("Warning"), 0)
                 {
                     add_button(wxID_YES, true, _L("Sync now"));
@@ -11032,6 +11057,24 @@ bool Plater::priv::can_simplify() const
     if (q->get_view3D_canvas3D()->get_gizmos_manager().get_current_type() ==
         GLGizmosManager::EType::Simplify)
         return false;
+    return true;
+}
+
+bool Plater::priv::can_smooth_mesh() const
+{
+    std::vector<int> obj_idxs, vol_idxs;
+    sidebar->obj_list()->get_selection_indexes(obj_idxs, vol_idxs);
+    if (vol_idxs.empty()) {
+        for (auto obj_idx : obj_idxs)
+            if (model.objects[obj_idx]->get_object_stl_stats().open_edges > 0)
+                return false;
+        return true;
+    }
+
+    int obj_idx = obj_idxs.front();
+    for (auto vol_idx : vol_idxs)
+        if (model.objects[obj_idx]->get_object_stl_stats().open_edges > 0)
+            return false;
     return true;
 }
 
@@ -11911,7 +11954,7 @@ void Plater::import_model_id(wxString download_info)
         int res = 0;
         std::string http_body;
 
-        msg = _L("prepare 3MF file...");
+        msg = _L("Preparing 3MF file...");
 
         //gets the number of files with the same name
         std::vector<wxString>   vecFiles;
@@ -11960,7 +12003,7 @@ void Plater::import_model_id(wxString download_info)
         }
 
 
-        msg = _L("downloading project...");
+        msg = _L("Downloading project...");
 
         //target_path = wxStandardPaths::Get().GetTempDir().utf8_str().data();
 
@@ -17927,6 +17970,7 @@ bool Plater::can_decrease_instances() const { return p->can_decrease_instances()
 bool Plater::can_set_instance_to_object() const { return p->can_set_instance_to_object(); }
 bool Plater::can_fix_through_netfabb() const { return p->can_fix_through_netfabb(); }
 bool Plater::can_simplify() const { return p->can_simplify(); }
+bool Plater::can_smooth_mesh() const { return p->can_smooth_mesh(); }
 bool Plater::can_split_to_objects() const { return p->can_split_to_objects(); }
 bool Plater::can_split_to_volumes() const { return p->can_split_to_volumes(); }
 bool Plater::can_arrange() const { return p->can_arrange(); }

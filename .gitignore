@@ -44,8 +44,4 @@ test.js
 /.cache/
 .clangd
 internal_docs/
-<<<<<<< HEAD
-PLANS.md
-=======
 *.flatpak
->>>>>>> origin/main

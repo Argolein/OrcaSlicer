@@ -1069,6 +1069,7 @@ public:
     bool  is_BBL_printer() const { return m_isBBLPrinter || boost::starts_with(m_config.printer_model.value, "Bambu Lab"); }
     bool& is_QIDI_printer() { return m_isQIDIPrinter; }
     bool  is_QIDI_printer() const { return m_isQIDIPrinter || boost::starts_with(m_config.printer_model.value, "QIDI"); }
+    WipeTowerType wipe_tower_type() const { return is_BBL_printer() ? WipeTowerType::Type1 : m_config.wipe_tower_type.value; }
     CalibMode& calib_mode() { return m_calib_params.mode; }
     const CalibMode calib_mode() const { return m_calib_params.mode; }
     void set_calib_params(const Calib_Params& params);
@@ -1136,7 +1137,6 @@ private:
     
     //SoftFever
     bool m_isBBLPrinter;
-    bool m_isQIDIPrinter;
 
     // Ordered collections of extrusion paths to build skirt loops and brim.
     ExtrusionEntityCollection               m_skirt;

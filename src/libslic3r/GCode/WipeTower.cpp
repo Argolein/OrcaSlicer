@@ -2519,19 +2519,11 @@ void WipeTower::plan_tower()
     for (auto& info : m_plan)
         max_depth = std::max(max_depth, info.toolchanges_depth());
 
-    float min_wipe_tower_depth = WipeTower::get_limit_depth_by_height(m_wipe_tower_height);
-
     {
         if (m_enable_wrapping_detection && max_depth < EPSILON)
             max_depth = wrapping_wipe_tower_depth;
 
-        if (m_enable_timelapse_print && max_depth < EPSILON)
-            max_depth = min_wipe_tower_depth;
-
-        if (max_depth + EPSILON < min_wipe_tower_depth && !has_tpu_filament())
-            m_extra_spacing = min_wipe_tower_depth / max_depth;
-        else
-            m_extra_spacing = 1.f;
+        m_extra_spacing = 1.f;
 
         for (int idx = 0; idx < m_plan.size(); idx++) {
             auto& info = m_plan[idx];
@@ -2580,7 +2572,7 @@ void WipeTower::plan_tower()
             this_layer_depth = wrapping_wipe_tower_depth;
 
         if (m_enable_timelapse_print && this_layer_depth < EPSILON)
-            this_layer_depth = min_wipe_tower_depth;
+            this_layer_depth = 0.f;
 
 		m_plan[layer_index].depth = this_layer_depth;
 
@@ -3914,9 +3906,6 @@ void WipeTower::plan_tower_new()
     for (const auto &block : m_wipe_tower_blocks) {
         max_depth += block.depth;
     }
-    //std::cout << " after square " << m_wipe_tower_width << "  depth  " << max_depth << std::endl;
-
-    float min_wipe_tower_depth = get_limit_depth_by_height(m_wipe_tower_height);
 
     // only for get m_extra_spacing
     {
@@ -3925,19 +3914,6 @@ void WipeTower::plan_tower_new()
             if (m_use_rib_wall) {
                 m_wipe_tower_width = max_depth;
             }
-        }
-
-        if (m_enable_timelapse_print && max_depth < EPSILON) {
-            max_depth = min_wipe_tower_depth;
-            if (m_use_rib_wall) { m_wipe_tower_width = max_depth; }
-        }
-
-        if (max_depth + EPSILON < min_wipe_tower_depth) {
-            //if enable rib_wall, there is no need to set extra_spacing
-            if (m_use_rib_wall)
-                m_rib_length = std::max(m_rib_length, min_wipe_tower_depth * (float) std::sqrt(2));
-            else
-                m_extra_spacing = std::max(min_wipe_tower_depth / max_depth, m_extra_spacing);
         }
 
         for (int idx = 0; idx < m_plan.size(); idx++) {

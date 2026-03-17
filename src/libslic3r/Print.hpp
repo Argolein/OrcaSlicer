@@ -911,8 +911,8 @@ public:
     // If preview_data is not null, the preview_data is filled in for the G-code visualization (not used by the command line Slic3r).
     std::string         export_gcode(const std::string& path_template, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
     //return 0 means successful
-    int                 export_cached_data(const std::string& dir_path, bool with_space=false);
-    int                 load_cached_data(const std::string& directory);
+    int                 export_cached_data(const std::string& dir_path, bool with_space=false) override;
+    int                 load_cached_data(const std::string& directory) override;
 
     // methods for handling state
     bool                is_step_done(PrintStep step) const { return Inherited::is_step_done(step); }
@@ -1136,7 +1136,8 @@ private:
     PrintRegionPtrs                         m_print_regions;
     
     //SoftFever
-    bool m_isBBLPrinter;
+    bool m_isBBLPrinter{ false };
+    bool m_isQIDIPrinter{ false };
 
     // Ordered collections of extrusion paths to build skirt loops and brim.
     ExtrusionEntityCollection               m_skirt;

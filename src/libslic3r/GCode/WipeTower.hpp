@@ -193,6 +193,13 @@ public:
 
     Polygon generate_rib_polygon(const box_coordinates &wt_box);
     float get_depth() const { return m_wipe_tower_depth; }
+    std::vector<std::pair<float, float>> get_z_and_depth_pairs() const {
+        std::vector<std::pair<float, float>> out;
+        out.reserve(m_plan.size());
+        for (const WipeTowerInfo& info : m_plan)
+            out.emplace_back(info.z, info.depth);
+        return out;
+    }
     float get_brim_width() const { return m_wipe_tower_brim_width_real; }
     BoundingBoxf get_bbx() const {
         if (m_outer_wall.empty()) return BoundingBoxf({Vec2d(0,0)});
@@ -427,8 +434,8 @@ private:
 	bool   m_semm               = true; // Are we using a single extruder multimaterial printer?
 	bool   m_purge_in_prime_tower = false; // Do we purge in the prime tower?
     Vec2f  m_wipe_tower_pos; 			// Left front corner of the wipe tower in mm.
-	float  m_wipe_tower_width; 			// Width of the wipe tower.
-	float  m_wipe_tower_depth 	= 0.f; 	// Depth of the wipe tower
+	float  m_wipe_tower_width;                      // Width of the wipe tower.
+	float  m_wipe_tower_depth;                      // Depth of the wipe tower.
 	// BBS
 	float  m_wipe_tower_height = 0.f;
     float  m_wipe_tower_brim_width      = 0.f; 	// Width of brim (mm) from config

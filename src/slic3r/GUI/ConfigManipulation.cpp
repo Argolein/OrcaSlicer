@@ -829,7 +829,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
                     "wipe_tower_no_sparse_layers"})
             toggle_line(el, have_prime_tower && supports_wipe_tower_2);
 
-    toggle_line("wipe_tower_cone_angle", have_prime_tower && supports_wipe_tower_2 && wipe_tower_wall_type == WipeTowerWallType::wtwCone);
+    toggle_line("wipe_tower_cone_angle", false); // wtwCone wall type not supported in this build
     toggle_field("prime_tower_width", have_prime_tower && (supports_wipe_tower_2 || have_rib_wall));
 
     toggle_line("single_extruder_multi_material_priming", !bSEMM && have_prime_tower && supports_wipe_tower_2);

@@ -6358,7 +6358,7 @@ void PrintConfigDef::init_fff_params()
     def = this->add("prime_tower_width", coFloat);
     def->label = L("Width");
     def->tooltip = L("Width of the prime tower.");
-    def->sidetext = L("mm");	// milimeters, CIS languages need translation
+    def->sidetext = L("mm");    // milimeters, CIS languages need translation
     def->min = 2.0;
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloat(60.));

@@ -2842,7 +2842,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                     proj_cfg.option<ConfigOptionFloats>("wipe_tower_y")->set_at(&cy, plate_id, 0);
                 };
                 float w = dynamic_cast<const ConfigOptionFloat*>(m_config->option("prime_tower_width"))->value;
-                float a = dynamic_cast<const ConfigOptionFloat*>(proj_cfg.option("wipe_tower_rotation_angle"))->value;
+                float a = dynamic_cast<const ConfigOptionFloat*>(dconfig.option("wipe_tower_rotation_angle"))->value;
 
                 // BBS
                 float v = dynamic_cast<const ConfigOptionFloat*>(m_config->option("prime_volume"))->value;
@@ -2874,7 +2874,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                     coordf_t plate_bbox_x_max_local_coord = plate_bbox_2d.max(0) - plate_origin(0);
                     coordf_t plate_bbox_y_max_local_coord = plate_bbox_2d.max(1) - plate_origin(1);
 
-                    const float tower_w = (float) wipe_tower_size(0);    
+                    const float tower_w = (float) wipe_tower_size(0);
                     const float tower_h = (float) wipe_tower_size(1);
                     const float min_x   = (float) plate_bbox_x_min_local_coord + margin;
                     const float max_x   = (float) plate_bbox_x_max_local_coord - margin;
@@ -2893,7 +2893,6 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                         // Persist the correction to config so the next slice uses the valid position
                         persist_wipe_tower_pos(new_x, new_y);
                     }
-
 
                     if (!current_print->is_step_done(psWipeTower) || !current_print->wipe_tower_data().wipe_tower_mesh_data) {
                         // update for wipe tower position
@@ -5293,8 +5292,6 @@ GLCanvas3D::WipeTowerInfo GLCanvas3D::get_wipe_tower_info(int plate_idx) const
             DynamicPrintConfig& proj_cfg = wxGetApp().preset_bundle->project_config;
             wti.m_pos = Vec2d(proj_cfg.opt<ConfigOptionFloats>("wipe_tower_x")->get_at(plate_idx),
                               proj_cfg.opt<ConfigOptionFloats>("wipe_tower_y")->get_at(plate_idx));
-            // BBS: don't support rotation
-            //wti.m_rotation = (M_PI/180.) * proj_cfg->opt_float("wipe_tower_rotation_angle");
 
             auto& preset = wxGetApp().preset_bundle->prints.get_edited_preset();
             float wt_brim_width = preset.config.opt_float("prime_tower_brim_width");

@@ -25,6 +25,7 @@
 #include <set>
 
 #include "calib.hpp"
+#include <boost/algorithm/string/predicate.hpp>
 
 namespace Slic3r {
 
@@ -911,8 +912,8 @@ public:
     // If preview_data is not null, the preview_data is filled in for the G-code visualization (not used by the command line Slic3r).
     std::string         export_gcode(const std::string& path_template, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
     //return 0 means successful
-    int                 export_cached_data(const std::string& dir_path, bool with_space=false);
-    int                 load_cached_data(const std::string& directory);
+    int                 export_cached_data(const std::string& dir_path, bool with_space=false) override;
+    int                 load_cached_data(const std::string& directory) override;
 
     // methods for handling state
     bool                is_step_done(PrintStep step) const { return Inherited::is_step_done(step); }
@@ -1065,8 +1066,10 @@ public:
     Points first_layer_wipe_tower_corners(bool check_wipe_tower_existance=true) const;
 
     //SoftFever
-    bool &is_BBL_printer() { return m_isBBLPrinter; }
-    const bool is_BBL_printer() const { return m_isBBLPrinter; }
+    bool& is_BBL_printer() { return m_isBBLPrinter; }
+    bool  is_BBL_printer() const { return m_isBBLPrinter || boost::starts_with(m_config.printer_model.value, "Bambu Lab"); }
+    bool& is_QIDI_printer() { return m_isQIDIPrinter; }
+    bool  is_QIDI_printer() const { return m_isQIDIPrinter || boost::starts_with(m_config.printer_model.value, "QIDI"); }
     WipeTowerType wipe_tower_type() const { return is_BBL_printer() ? WipeTowerType::Type1 : m_config.wipe_tower_type.value; }
     CalibMode& calib_mode() { return m_calib_params.mode; }
     const CalibMode calib_mode() const { return m_calib_params.mode; }
@@ -1134,7 +1137,8 @@ private:
     PrintRegionPtrs                         m_print_regions;
     
     //SoftFever
-    bool m_isBBLPrinter;
+    bool m_isBBLPrinter{ false };
+    bool m_isQIDIPrinter{ false };
 
     // Ordered collections of extrusion paths to build skirt loops and brim.
     ExtrusionEntityCollection               m_skirt;

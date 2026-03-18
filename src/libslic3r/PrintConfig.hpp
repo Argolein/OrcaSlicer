@@ -381,11 +381,9 @@ enum CounterboreHoleBridgingOption {
 };
 
  enum WipeTowerWallType {
-     wtwRectangle = 0,
-     wtwCone,
-     wtwRib
+      wtwRectangle = 0,
+      wtwRib
  };
-
 // BBS
 enum ExtruderType {
     etDirectDrive = 0,

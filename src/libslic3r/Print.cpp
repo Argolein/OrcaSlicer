@@ -285,8 +285,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "skirt_start_angle"
             || opt_key == "ooze_prevention"
             || opt_key == "wipe_tower_x"
-            || opt_key == "wipe_tower_y"
-            || opt_key == "wipe_tower_rotation_angle") {
+            || opt_key == "wipe_tower_y") {
             steps.emplace_back(psSkirtBrim);
         } else if (
                opt_key == "initial_layer_print_height"
@@ -334,6 +333,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "hot_plate_temp"
             || opt_key == "textured_plate_temp"
             || opt_key == "enable_prime_tower"
+            || opt_key == "wipe_tower_rotation_angle"
             || opt_key == "enable_wrapping_detection"
             || opt_key == "prime_tower_enable_framework"
             || opt_key == "prime_tower_width"
@@ -1001,40 +1001,11 @@ static StringObjectException layered_print_cleareance_valid(const Print &print, 
     }
 
     //BBS: add the wipe tower check logic
-    const PrintConfig &       config   = print.config();
-    int                 filaments_count = print.extruders().size();
-    int                 plate_index = print.get_plate_index();
-    const Vec3d         plate_origin = print.get_plate_origin();
-    float               x            = config.wipe_tower_x.get_at(plate_index) + plate_origin(0);
-    float               y            = config.wipe_tower_y.get_at(plate_index) + plate_origin(1);
-    float               width        = config.prime_tower_width.value;
-    float               a            = config.wipe_tower_rotation_angle.value;
-    //float               v            = config.wiping_volume.value;
-
-    float        depth                     = print.wipe_tower_data(filaments_count).depth;
-    //float        brim_width                = print.wipe_tower_data(filaments_count).brim_width;
-
-    if (config.wipe_tower_wall_type.value == WipeTowerWallType::wtwRib)
-        width = depth;
-
     Polygons convex_hulls_temp;
     if (print.has_wipe_tower()) {
-        if (!print.is_step_done(psWipeTower)) {
-            Polygon wipe_tower_convex_hull;
-            wipe_tower_convex_hull.points.emplace_back(scale_(x), scale_(y));
-            wipe_tower_convex_hull.points.emplace_back(scale_(x + width), scale_(y));
-            wipe_tower_convex_hull.points.emplace_back(scale_(x + width), scale_(y + depth));
-            wipe_tower_convex_hull.points.emplace_back(scale_(x), scale_(y + depth));
-            wipe_tower_convex_hull.rotate(a);
-            convex_hulls_temp.push_back(wipe_tower_convex_hull);
-        } else {
-            //here, wipe_tower_polygon is not always convex.
-            Polygon wipe_tower_polygon;
-            if (print.wipe_tower_data().wipe_tower_mesh_data)
-                wipe_tower_polygon = print.wipe_tower_data().wipe_tower_mesh_data->bottom;
-            wipe_tower_polygon.translate(Point(scale_(x), scale_(y)));
+        Polygon wipe_tower_polygon = print.first_layer_wipe_tower_polygon(false);
+        if (!wipe_tower_polygon.empty())
             convex_hulls_temp.push_back(wipe_tower_polygon);
-        }
     }
     if (!intersection(convex_hulls_other, convex_hulls_temp).empty()) {
         if (warning) {
@@ -2740,32 +2711,50 @@ Polygons Print::first_layer_islands() const
     return islands;
 }
 
+Polygon Print::first_layer_wipe_tower_polygon(bool check_wipe_tower_existance) const
+{
+    Polygon polygon;
+    if (!has_wipe_tower())
+        return polygon;
+    if (check_wipe_tower_existance && m_wipe_tower_data.tool_changes.empty())
+        return polygon;
+
+    if (m_wipe_tower_data.wipe_tower_mesh_data) {
+        polygon = m_wipe_tower_data.wipe_tower_mesh_data->bottom;
+    } else {
+        const float width = float(m_wipe_tower_data.bbx.max.x() - m_wipe_tower_data.bbx.min.x());
+        const float depth = float(m_wipe_tower_data.bbx.max.y() - m_wipe_tower_data.bbx.min.y());
+        if (width <= EPSILON || depth <= EPSILON)
+            return polygon;
+
+        float brim_width = m_wipe_tower_data.brim_width;
+        if (brim_width <= 0.f) {
+            const float config_brim_width = float(m_config.prime_tower_brim_width.value);
+            if (config_brim_width > 0.f)
+                brim_width = config_brim_width;
+            else if (config_brim_width < 0.f && m_wipe_tower_data.height > 0.f)
+                brim_width = WipeTower::get_auto_brim_by_height(m_wipe_tower_data.height);
+        }
+
+        polygon = Polygon({
+            Point::new_scale(-brim_width, -brim_width),
+            Point::new_scale(width + brim_width, -brim_width),
+            Point::new_scale(width + brim_width, depth + brim_width),
+            Point::new_scale(-brim_width, depth + brim_width)
+        });
+        polygon.translate(scale_(m_wipe_tower_data.rib_offset.x()), scale_(m_wipe_tower_data.rib_offset.y()));
+    }
+
+    polygon.rotate(Geometry::deg2rad(m_config.wipe_tower_rotation_angle.value));
+    polygon.translate(
+        scale_(m_config.wipe_tower_x.get_at(m_plate_index) + m_origin(0)),
+        scale_(m_config.wipe_tower_y.get_at(m_plate_index) + m_origin(1)));
+    return polygon;
+}
+
 Points Print::first_layer_wipe_tower_corners(bool check_wipe_tower_existance) const
 {
-    Points corners;
-    if (check_wipe_tower_existance && (!has_wipe_tower() || m_wipe_tower_data.tool_changes.empty()))
-        return corners;
-    {
-        double width = m_wipe_tower_data.bbx.max.x() - m_wipe_tower_data.bbx.min.x();
-        double depth = m_wipe_tower_data.bbx.max.y() -m_wipe_tower_data.bbx.min.y();
-        Vec2d  pt0   = m_wipe_tower_data.bbx.min + m_wipe_tower_data.rib_offset.cast<double>();
-        
-        // First the corners.
-        std::vector<Vec2d> pts = { pt0,
-                                   Vec2d(pt0.x()+width, pt0.y()),
-                                   Vec2d(pt0.x()+width, pt0.y()+depth),
-                                   Vec2d(pt0.x(),pt0.y()+depth)
-                                 };
-
-        // Now the stabilization cone.
-        for (Vec2d& pt : pts) {
-            pt = Eigen::Rotation2Dd(Geometry::deg2rad(m_config.wipe_tower_rotation_angle.value)) * pt;
-            //Orca: offset the wipe tower to the plate origin
-            pt += Vec2d(m_config.wipe_tower_x.get_at(m_plate_index) + m_origin(0), m_config.wipe_tower_y.get_at(m_plate_index) + m_origin(1));
-            corners.emplace_back(Point(scale_(pt.x()), scale_(pt.y())));
-        }
-    }
-    return corners;
+    return first_layer_wipe_tower_polygon(check_wipe_tower_existance).points;
 }
 
 //SoftFever
@@ -3379,6 +3368,7 @@ void Print::_make_wipe_tower()
                                               m_wipe_tower_data.z_and_depth_pairs, m_wipe_tower_data.brim_width,
                                               config().wipe_tower_rotation_angle, config().wipe_tower_cone_angle,
                                               {scale_(plate_origin.x()), scale_(plate_origin.y())});
+    m_fake_wipe_tower.rib_offset = m_wipe_tower_data.rib_offset;
     m_fake_wipe_tower.outer_wall = wipe_tower.get_outer_wall();
 }
 
@@ -4854,7 +4844,6 @@ ExtrusionLayers FakeWipeTower::getTrueExtrusionLayersFromWipeTower() const
             ++pre;
         }
     }
-    Point trans = {scale_(pos.x()), scale_(pos.y())};
     for (auto it = outer_wall.begin(); it != outer_wall.end(); ++it) {
         int            index = std::distance(outer_wall.begin(), it);
         ExtrusionLayer el;
@@ -4862,8 +4851,7 @@ ExtrusionLayers FakeWipeTower::getTrueExtrusionLayersFromWipeTower() const
         paths.reserve(it->second.size());
         for (auto &polyline : it->second) {
             ExtrusionPath path(ExtrusionRole::erWipeTower, 0.0, 0.0, layer_heights[index]);
-            path.polyline = polyline;
-            for (auto &p : path.polyline.points) p += trans;
+            path.polyline = transform_outer_wall_polyline(polyline);
             paths.push_back(path);
         }
         el.paths    = std::move(paths);

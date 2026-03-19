@@ -633,6 +633,13 @@ struct FakeWipeTower
     void set_pos(Vec2f p) { pos = p+rib_offset; }
     void set_pos_and_rotation(const Vec2f& p, float rotation) { pos = p; rotation_angle = rotation; }
 
+    Polyline transform_outer_wall_polyline(Polyline polyline) const
+    {
+        polyline.rotate(Geometry::deg2rad(rotation_angle));
+        polyline.translate(scale_(pos.x()), scale_(pos.y()));
+        return polyline;
+    }
+
     std::vector<ExtrusionPaths> getFakeExtrusionPathsFromWipeTower() const
     {
         int   d         = scale_(depth);
@@ -728,8 +735,7 @@ struct FakeWipeTower
         // Rotate and translate the tower into the final position.
         for (ExtrusionPaths& ps : paths) {
             for (ExtrusionPath& p : ps) {
-                p.polyline.rotate(Geometry::deg2rad(rotation_angle));
-                p.polyline.translate(scale_(pos.x()), scale_(pos.y()));
+                p.polyline = transform_outer_wall_polyline(std::move(p.polyline));
             }
         }
 
@@ -1062,7 +1068,9 @@ public:
     static StringObjectException sequential_print_clearance_valid(const Print &print, Polygons *polygons = nullptr, std::vector<std::pair<Polygon, float>>* height_polygons = nullptr);
     ConflictResultOpt            get_conflict_result() const { return m_conflict_result; }
 
-    // Return 4 wipe tower corners in the world coordinates (shifted and rotated), including the wipe tower brim.
+    // Return the wipe tower footprint in world coordinates (shifted and rotated), including the wipe tower brim.
+    Polygon first_layer_wipe_tower_polygon(bool check_wipe_tower_existance=true) const;
+    // Return wipe tower footprint vertices in world coordinates (shifted and rotated), including the wipe tower brim.
     Points first_layer_wipe_tower_corners(bool check_wipe_tower_existance=true) const;
 
     //SoftFever

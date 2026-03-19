@@ -356,12 +356,17 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
         std::string        line;
         Vec2f              transformed_pos = pos;
         Vec2f              old_pos(-1000.1f, -1000.1f);
+        const Eigen::Rotation2Df wt_rot(angle);
 
         while (gcode_str) {
             std::getline(gcode_str, line); // we read the gcode line by line
 
-            if (line.find("G1 ") == 0) {
+            if (line.find("G1 ") == 0 || line.find("G2 ") == 0 || line.find("G3 ") == 0) {
+                const bool is_arc_move = line.find("G2 ") == 0 || line.find("G3 ") == 0;
+                const char* gcode_prefix = line.find("G1 ") == 0 ? "G1 " : (line.find("G2 ") == 0 ? "G2 " : "G3 ");
                 bool never_skip = false;
+                bool has_arc_center = false;
+                Vec2f arc_center_offset = Vec2f::Zero();
                 auto it         = line.find(WipeTower::never_skip_tag());
                 if (it != std::string::npos) {
                     // remove the tag and remember we saw it
@@ -375,20 +380,29 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
                 while (line_str >> ch) {
                     if (ch == 'X' || ch == 'Y')
                         line_str >> (ch == 'X' ? pos.x() : pos.y());
+                    else if (is_arc_move && (ch == 'I' || ch == 'J')) {
+                        line_str >> (ch == 'I' ? arc_center_offset.x() : arc_center_offset.y());
+                        has_arc_center = true;
+                    }
                     else
                         line_out << ch;
                 }
 
-                transformed_pos = Eigen::Rotation2Df(angle) * pos + translation;
+                transformed_pos = wt_rot * pos + translation;
 
-                if (transformed_pos != old_pos || never_skip) {
+                if (transformed_pos != old_pos || never_skip || has_arc_center) {
                     line = line_out.str();
                     std::ostringstream oss;
-                    oss << std::fixed << std::setprecision(3) << "G1 ";
+                    oss << std::fixed << std::setprecision(3) << gcode_prefix;
                     if (transformed_pos.x() != old_pos.x() || never_skip) oss << " X" << transformed_pos.x() - extruder_offset.x();
                     if (transformed_pos.y() != old_pos.y() || never_skip) oss << " Y" << transformed_pos.y() - extruder_offset.y();
+                    if (has_arc_center) {
+                        const Vec2f transformed_arc_center_offset = wt_rot * arc_center_offset;
+                        oss << " I" << transformed_arc_center_offset.x();
+                        oss << " J" << transformed_arc_center_offset.y();
+                    }
                     oss << " ";
-                    line.replace(line.find("G1 "), 3, oss.str());
+                    line.replace(line.find(gcode_prefix), 3, oss.str());
                     old_pos = transformed_pos;
                 }
             }
@@ -1111,8 +1125,9 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
         std::istringstream gcode_str(tcr.gcode);
         std::string gcode_out;
         std::string line;
-        Vec2f pos = tcr.start_pos;
-        auto  trans_pos = [wt_rot = Eigen::Rotation2Df(angle), &translation](const Vec2f& p) -> Vec2f { return wt_rot * p + translation; };
+        Vec2f                    pos    = tcr.start_pos;
+        const Eigen::Rotation2Df wt_rot(angle);
+        auto                     trans_pos = [&wt_rot, &translation](const Vec2f& p) -> Vec2f { return wt_rot * p + translation; };
         Vec2f transformed_pos = trans_pos(pos);
         Vec2f old_pos(-1000.1f, -1000.1f);
 
@@ -1124,7 +1139,10 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
             // WT generator can override this by appending the never_skip_tag
             if (line.find("G1 ") == 0 || line.find("G2 ") == 0 || line.find("G3 ") == 0) {
                 std::string cur_gcode_start = line.find("G1 ") == 0 ? "G1 " : (line.find("G2 ") == 0 ? "G2 " : "G3 ");
+                const bool  is_arc_move     = cur_gcode_start != "G1 ";
                 bool        never_skip      = false;
+                bool        has_arc_center  = false;
+                Vec2f       arc_center_offset = Vec2f::Zero();
                 auto        it              = line.find(WipeTower::never_skip_tag());
                 if (it != std::string::npos) {
                     // remove the tag and remember we saw it
@@ -1138,6 +1156,10 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
                 while (line_str >> ch) {
                     if (ch == 'X' || ch == 'Y')
                         line_str >> (ch == 'X' ? pos.x() : pos.y());
+                    else if (is_arc_move && (ch == 'I' || ch == 'J')) {
+                        line_str >> (ch == 'I' ? arc_center_offset.x() : arc_center_offset.y());
+                        has_arc_center = true;
+                    }
                     else
                         line_out << ch;
                 }
@@ -1146,13 +1168,18 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
 
                 transformed_pos = trans_pos(pos);
 
-                if (transformed_pos != old_pos || never_skip) {
+                if (transformed_pos != old_pos || never_skip || has_arc_center) {
                     std::ostringstream oss;
                     oss << std::fixed << std::setprecision(3) << cur_gcode_start;
                     if (transformed_pos.x() != old_pos.x() || never_skip)
                         oss << " X" << transformed_pos.x() - extruder_offset.x();
                     if (transformed_pos.y() != old_pos.y() || never_skip)
                         oss << " Y" << transformed_pos.y() - extruder_offset.y();
+                    if (has_arc_center) {
+                        const Vec2f transformed_arc_center_offset = wt_rot * arc_center_offset;
+                        oss << " I" << transformed_arc_center_offset.x();
+                        oss << " J" << transformed_arc_center_offset.y();
+                    }
                     oss << " ";
                     line.replace(line.find(cur_gcode_start), 3, oss.str());
                     old_pos = transformed_pos;

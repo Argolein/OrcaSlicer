@@ -4314,10 +4314,14 @@ Polygon WipeTower::generate_rib_polygon(const box_coordinates &wt_box)
     Polygon poly_1 = generate_rectange(line_1, diagonal_width);
     Polygon poly_2 = generate_rectange(line_2, diagonal_width);
     Polygon poly;
-    poly.points.push_back(Point::new_scale(wt_box.ld));
-    poly.points.push_back(Point::new_scale(wt_box.rd));
-    poly.points.push_back(Point::new_scale(wt_box.ru));
-    poly.points.push_back(Point::new_scale(wt_box.lu));
+    box_coordinates outer_box = wt_box;
+    if (!m_tower_framework && m_wipe_tower_blocks.size() == 1 && m_layer_info->depth < m_wipe_tower_depth - m_perimeter_width) {
+        outer_box = align_perimeter(box_coordinates(Vec2f(0.f, -m_y_shift), m_wipe_tower_width, m_wipe_tower_depth));
+    }
+    poly.points.push_back(Point::new_scale(outer_box.ld));
+    poly.points.push_back(Point::new_scale(outer_box.rd));
+    poly.points.push_back(Point::new_scale(outer_box.ru));
+    poly.points.push_back(Point::new_scale(outer_box.lu));
 
     Polygons           p_1_2    = union_({poly_1, poly_2, poly});
     //Polygon            res_poly = p_1_2.front();

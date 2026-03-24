@@ -94,6 +94,16 @@ static const size_t g_max_label_object = 64;
 Vec2d travel_point_1;
 Vec2d travel_point_2;
 Vec2d travel_point_3;
+
+static bool use_support_tower_interface_temp(const FullPrintConfig& config, const WipeTower::ToolChangeResult& tcr, int filament_id)
+{
+    if (!config.enable_tower_interface_features.value || !tcr.is_contact || filament_id < 0)
+        return false;
+
+    const auto filament_count = static_cast<int>(config.filament_is_support.values.size());
+    return filament_id < filament_count && config.filament_is_support.get_at(filament_id);
+}
+
 static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
 {
     // give safe value in case there is no start_end_points in config
@@ -894,13 +904,14 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
                 config.set_key_value("old_retract_length_toolchange", new ConfigOptionFloat(old_retract_length_toolchange));
                 config.set_key_value("new_retract_length_toolchange", new ConfigOptionFloat(new_retract_length_toolchange));
                 config.set_key_value("old_filament_temp", new ConfigOptionInt(old_filament_temp));
+                const bool use_interface_temp = use_support_tower_interface_temp(full_config, tcr, new_filament_id);
                 int interface_temp = full_config.filament_tower_interface_print_temp.get_at(new_filament_id);
                 if (interface_temp == -1)
                     interface_temp = full_config.nozzle_temperature_range_high.get_at(new_filament_id);
-                if (full_config.enable_tower_interface_features && tcr.is_contact)
+                if (use_interface_temp)
                     new_filament_temp = interface_temp;
                 config.set_key_value("new_filament_temp", new ConfigOptionInt(new_filament_temp));
-                if (full_config.enable_tower_interface_features && tcr.is_contact) {
+                if (use_interface_temp) {
                     auto temps = full_config.nozzle_temperature.values;
                     if (new_filament_id >= 0 && new_filament_id < (int)temps.size())
                         temps[new_filament_id] = interface_temp;
@@ -940,7 +951,7 @@ static std::vector<Vec2d> get_path_of_change_filament(const Print& print)
                 config.set_key_value("flush_length", new ConfigOptionFloat(purge_length));
                 config.set_key_value("wipe_avoid_perimeter", new ConfigOptionBool(is_used_travel_avoid_perimeter));
                 config.set_key_value("wipe_avoid_pos_x", new ConfigOptionFloat(wipe_avoid_pos_x));
-                config.set_key_value("is_prime_tower_interface", new ConfigOptionBool(tcr.is_contact));
+                config.set_key_value("is_prime_tower_interface", new ConfigOptionBool(use_interface_temp));
                 config.set_key_value("filament_tower_interface_purge_volume", new ConfigOptionFloat(full_config.filament_tower_interface_purge_volume.get_at(new_filament_id)));
                 config.set_key_value("filament_tower_interface_print_temp", new ConfigOptionInt(interface_temp));
 

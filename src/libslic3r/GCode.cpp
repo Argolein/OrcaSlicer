@@ -2899,8 +2899,8 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     if (print.calib_params().mode == CalibMode::Calib_PA_Line) {
         std::string gcode;
         gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Layer_Change) + "\n";
-        if ((print.default_object_config().outer_wall_acceleration.value > 0 && print.default_object_config().outer_wall_acceleration.value > 0)) {
-            gcode += m_writer.set_print_acceleration((unsigned int)floor(print.default_object_config().outer_wall_acceleration.value + 0.5));
+        if (print.default_object_config().outer_wall_acceleration.value > 0) {
+            gcode += m_writer.set_print_acceleration(this->rounded_filament_acceleration(print.default_object_config().outer_wall_acceleration.value));
         }
 
         if (print.default_object_config().outer_wall_jerk.value > 0) {
@@ -4291,7 +4291,7 @@ LayerResult GCode::process_layer(
     if (first_layer) {
         // Orca: we don't need to optimize the Klipper as only set once
         if (m_config.default_acceleration.value > 0 && m_config.initial_layer_acceleration.value > 0) {
-            gcode += m_writer.set_print_acceleration((unsigned int)floor(m_config.initial_layer_acceleration.value + 0.5));
+            gcode += m_writer.set_print_acceleration(this->rounded_filament_acceleration(m_config.initial_layer_acceleration.value));
         }
 
         if (m_config.default_jerk.value > 0 && m_config.initial_layer_jerk.value > 0) {
@@ -4321,7 +4321,7 @@ LayerResult GCode::process_layer(
       // Reset acceleration at sencond layer
       // Orca: only set once, don't need to call set_accel_and_jerk
       if (m_config.default_acceleration.value > 0 && m_config.initial_layer_acceleration.value > 0) {
-        gcode += m_writer.set_print_acceleration((unsigned int) floor(m_config.default_acceleration.value + 0.5));
+        gcode += m_writer.set_print_acceleration(this->rounded_filament_acceleration(m_config.default_acceleration.value));
       }
 
       if (m_config.default_jerk.value > 0 && m_config.initial_layer_jerk.value > 0) {
@@ -5855,6 +5855,23 @@ double GCode::calc_max_volumetric_speed(const double layer_height, const double 
     return res;
 }
 
+unsigned int GCode::rounded_filament_acceleration(double acceleration) const
+{
+    if (acceleration <= 0.0)
+        return 0;
+
+    const Extruder *filament = m_writer.filament();
+    if (filament != nullptr) {
+        const size_t filament_id = filament->id();
+        if (filament_id < m_config.enable_filament_acceleration_limit.values.size() &&
+            filament_id < m_config.filament_max_acceleration.values.size() &&
+            m_config.enable_filament_acceleration_limit.get_at(filament_id))
+            acceleration = std::min(acceleration, std::max(0.0, m_config.filament_max_acceleration.get_at(filament_id)));
+    }
+
+    return static_cast<unsigned int>(std::floor(acceleration + 0.5));
+}
+
 std::string GCode::_extrude(const ExtrusionPath &path, std::string description, double speed)
 {
     std::string gcode;
@@ -5928,7 +5945,7 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
         } else {
             acceleration = m_config.default_acceleration.value;
         }
-        acceleration_i = (unsigned int)floor(acceleration + 0.5);
+        acceleration_i = this->rounded_filament_acceleration(acceleration);
     }
 
     // adjust X Y jerk
@@ -6775,7 +6792,7 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
     
     if (this->on_first_layer()) {
         if (m_config.default_acceleration.value > 0 && m_config.initial_layer_acceleration.value > 0) {
-            acceleration_to_set = (unsigned int) floor(m_config.initial_layer_acceleration.value + 0.5);
+            acceleration_to_set = this->rounded_filament_acceleration(m_config.initial_layer_acceleration.value);
         }
         
         if (m_config.default_jerk.value > 0 && m_config.initial_layer_jerk.value > 0) {
@@ -6789,14 +6806,14 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         if (m_config.default_acceleration.value > 0) {
             if (short_perimeter_travel) {
                 if (m_config.travel_short_distance_acceleration.value > 0) {
-                    acceleration_to_set = (unsigned int) floor(m_config.travel_short_distance_acceleration.value + 0.5);
+                    acceleration_to_set = this->rounded_filament_acceleration(m_config.travel_short_distance_acceleration.value);
                 } else if (m_config.outer_wall_acceleration.value > 0) {
                     // Keep legacy fallback behavior when short-travel acceleration is disabled.
-                    acceleration_to_set = (unsigned int) floor(m_config.outer_wall_acceleration.value + 0.5);
+                    acceleration_to_set = this->rounded_filament_acceleration(m_config.outer_wall_acceleration.value);
                 }
             } else {
                 if (m_config.travel_acceleration.value > 0)
-                    acceleration_to_set = (unsigned int) floor(m_config.travel_acceleration.value + 0.5);
+                    acceleration_to_set = this->rounded_filament_acceleration(m_config.travel_acceleration.value);
             }
         }
 

@@ -2908,18 +2908,21 @@ WipeTower::ToolChangeResult WipeTower::tool_change_new(size_t new_tool, bool sol
             bool   left_to_right     = true;
             int tpu_line_count = (nozzle_change_line_count + 2 - 1) / 2; // nozzle_change_line_count / 2 round up
 
-            writer.travel(start_pos);
+            if (tpu_line_count > 0) {
+                writer.travel(start_pos);
 
-            for (int i = 0; true; ++i) {
-                if (left_to_right)
-                    writer.travel(xr - m_perimeter_width, writer.y(), nozzle_change_speed);
-                else
-                    writer.travel(xl + m_perimeter_width, writer.y(), nozzle_change_speed);
+                for (int i = 0; i < tpu_line_count; ++i) {
+                    if (left_to_right)
+                        writer.travel(xr - m_perimeter_width, writer.y(), nozzle_change_speed);
+                    else
+                        writer.travel(xl + m_perimeter_width, writer.y(), nozzle_change_speed);
 
-                if (i == tpu_line_count - 1) break;
+                    if (i == tpu_line_count - 1)
+                        break;
 
-                writer.travel(writer.x(), writer.y() + dy);
-                left_to_right = !left_to_right;
+                    writer.travel(writer.x(), writer.y() + dy);
+                    left_to_right = !left_to_right;
+                }
             }
             writer.travel(initial_position);
         }
@@ -3046,19 +3049,21 @@ WipeTower::NozzleChangeResult WipeTower::nozzle_change_new(int old_filament_id, 
         bool   left_to_right     = !m_left_to_right;
         int  tpu_line_count = (real_nozzle_change_line_count + 2 - 1) / 2; // nozzle_change_line_count / 2 round up
         nozzle_change_speed *= 2;
-        writer.travel(writer.x(), writer.y() - m_nozzle_change_perimeter_width);
+        if (tpu_line_count > 0) {
+            writer.travel(writer.x(), writer.y() - m_nozzle_change_perimeter_width);
 
-        for (int i = 0; true; ++i) {
-            if (left_to_right)
-                writer.travel(xr - m_perimeter_width, writer.y(), nozzle_change_speed);
-            else
-                writer.travel(xl + m_perimeter_width, writer.y(), nozzle_change_speed);
+            for (int i = 0; i < tpu_line_count; ++i) {
+                if (left_to_right)
+                    writer.travel(xr - m_perimeter_width, writer.y(), nozzle_change_speed);
+                else
+                    writer.travel(xl + m_perimeter_width, writer.y(), nozzle_change_speed);
 
-            if (i == tpu_line_count - 1)
-                break;
+                if (i == tpu_line_count - 1)
+                    break;
 
-            writer.travel(writer.x(), writer.y() - dy);
-            left_to_right = !left_to_right;
+                writer.travel(writer.x(), writer.y() - dy);
+                left_to_right = !left_to_right;
+            }
         }
     } else {
         result.wipe_path.push_back(writer.pos_rotated());

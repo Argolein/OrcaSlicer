@@ -575,7 +575,13 @@ public:
     // Calls wxLaunchDefaultBrowser if user confirms in dialog.
     bool            open_browser_with_warning_dialog(const wxString& url, int flags = 0);
 #ifdef __APPLE__
+    // wxWidgets 3.3 keeps OSXStoreOpenFiles() as a non-virtual storage helper,
+    // while older macOS ports exposed it as an override point.
+#if wxCHECK_VERSION(3, 3, 0)
+    void            OSXStoreOpenFiles(const wxArrayString &files);
+#else
     void            OSXStoreOpenFiles(const wxArrayString &files) override;
+#endif
     // wxWidgets override to get an event on open files.
     void            MacOpenFiles(const wxArrayString &fileNames) override;
     void            MacOpenURL(const wxString& url) override;

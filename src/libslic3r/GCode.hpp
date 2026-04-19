@@ -250,7 +250,7 @@ public:
     std::string     retract(bool toolchange = false, bool is_last_retraction = false, LiftType lift_type = LiftType::NormalLift, bool apply_instantly = false, ExtrusionRole role = erNone);
     std::string     unretract() { return m_writer.unlift() + m_writer.unretract(); }
     std::string     set_extruder(unsigned int extruder_id, double print_z, bool by_object=false, int toolchange_temp_override = -1);
-    bool is_BBL_Printer();
+    bool is_BBL_Printer() const;
     WipeTowerType wipe_tower_type();
 
     // SoftFever
@@ -380,6 +380,11 @@ private:
     //BBS
     void check_placeholder_parser_failed();
     size_t get_extruder_id(unsigned int filament_id) const;
+    unsigned int get_toolchange_id(unsigned int filament_id) const;
+    bool uses_physical_tool_ids() const;
+    bool uses_strict_physical_tool_ids() const;
+    unsigned int get_strict_physical_tool_id(unsigned int tool_id) const;
+    std::string rewrite_tool_related_gcode_to_physical(const std::string &gcode) const;
 
     void            set_last_pos(const Point &pos) { m_last_pos = pos; m_last_pos_defined = true; }
     bool            last_pos_defined() const { return m_last_pos_defined; }

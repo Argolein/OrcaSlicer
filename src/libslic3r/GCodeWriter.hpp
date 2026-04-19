@@ -20,6 +20,7 @@ public:
         multiple_extruders(false), m_curr_filament_extruder(MAXIMUM_EXTRUDER_NUMBER, nullptr),
         m_curr_extruder_id (-1),
         m_single_extruder_multi_material(false),
+        m_use_physical_extruder_ids_only(false),
         m_last_acceleration(0), m_max_acceleration(0),m_last_travel_acceleration(0), m_max_travel_acceleration(0),
         m_last_jerk(0), m_max_jerk_x(0), m_max_jerk_y(0),
         m_last_bed_temperature(0), m_last_bed_temperature_reached(true),
@@ -133,6 +134,7 @@ public:
 	// Extruders are sorted by their ID, so that binary search is possible.
     std::vector<Extruder> m_filament_extruders;
     bool            m_single_extruder_multi_material;
+    bool            m_use_physical_extruder_ids_only;
     std::vector<Extruder*> m_curr_filament_extruder;
     int        m_curr_extruder_id;
     unsigned int    m_last_acceleration;
@@ -192,6 +194,8 @@ public:
     std::string _retract(double length, double restart_extra, const std::string &comment);
     unsigned int limit_to_filament_max_acceleration(unsigned int acceleration) const;
     std::string set_acceleration_internal(Acceleration type, unsigned int acceleration);
+    bool        uses_strict_physical_tool_ids() const;
+    int         get_output_tool_id(int tool) const;
 
 };
 

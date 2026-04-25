@@ -14829,7 +14829,7 @@ Preset *get_printer_preset(const MachineObject *obj)
         std::string model_id = printer_it->get_current_printer_type(preset_bundle);
 
         std::string printer_type = obj->get_show_printer_type();
-        if (model_id.compare(printer_type) == 0 && printer_nozzle_vals && abs(printer_nozzle_vals->get_at(0) - machine_nozzle_diameter) < 1e-3) {
+        if (model_id.compare(printer_type) == 0 && printer_nozzle_vals && (machine_nozzle_diameter == 0.0f || abs(printer_nozzle_vals->get_at(0) - machine_nozzle_diameter) < 1e-3)) {
             printer_preset = &(*printer_it);
         }
     }
@@ -14845,17 +14845,20 @@ bool Plater::check_printer_initialized(MachineObject *obj, bool only_warning, bo
 
     const auto& extruders = obj->GetExtderSystem()->GetExtruders();
     for (const DevExtder& extruder : extruders) {
-        if (obj->is_multi_extruders()) {
-            if (extruder.GetNozzleFlowType() == NozzleFlowType::NONE_FLOWTYPE) {
-                has_been_initialized = false;
-                break;
-            }
-        }
+    // Skip check if nozzle type is unknown (same tolerance as SelectMachine.cpp)
+    if (extruder.GetNozzleType() == NozzleType::ntUndefine)
+        continue;
+    if (obj->is_multi_extruders()) {
         if (extruder.GetNozzleFlowType() == NozzleFlowType::NONE_FLOWTYPE) {
             has_been_initialized = false;
             break;
         }
     }
+    if (extruder.GetNozzleFlowType() == NozzleFlowType::NONE_FLOWTYPE) {
+        has_been_initialized = false;
+        break;
+    }
+}
 
     if (!has_been_initialized) {
         if (popup_warning) {

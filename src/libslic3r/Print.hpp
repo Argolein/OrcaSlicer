@@ -642,6 +642,13 @@ struct FakeWipeTower
         return polyline;
     }
 
+    Polyline3 transform_outer_wall_polyline(Polyline3 polyline) const
+    {
+        polyline.rotate(Geometry::deg2rad(rotation_angle));
+        polyline.translate(scale_(pos.x()), scale_(pos.y()), 0);
+        return polyline;
+    }
+
     std::vector<ExtrusionPaths> getFakeExtrusionPathsFromWipeTower() const
     {
         int   d         = scale_(depth);

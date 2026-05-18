@@ -29,17 +29,20 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
   - Merged `upstream/main` into `ultimate-merge.v2`.
   - Resolved all eight content conflicts with local branch behavior prioritized.
   - Staged the resolved conflict files so the merge has no unresolved paths.
+  - Fixed follow-up macOS build errors in `Print.hpp`, `TreeSupport.cpp`, and `SnapmakerPrinterAgent.cpp`.
+  - Verified `./build_release_macos.sh -x -s -a arm64` completes successfully.
 - Stopped at:
-  - Merge is resolved and staged, but no merge commit was created.
+  - Merge/build fixes are staged, but no commit was created.
 - Next step:
-  - Run a build or targeted tests, then create the merge commit if the result is acceptable.
+  - Review the staged changes and create the merge commit if the result is acceptable.
 - Open blockers:
-  - Full C++ build/tests were not run.
+  - none
 - Decisions made this session:
   - Local branch changes take priority in conflict resolution.
   - `Preset.cpp` uses the current upstream option-list layout with local branch options re-added.
   - `GCode.cpp` keeps local short-travel acceleration behavior and integrates upstream first-layer travel acceleration/jerk.
   - `SnapmakerPrinterAgent.cpp` keeps the local stable vendor/type fallback after upstream color-aware matching.
+  - `TreeSupport.cpp` keeps the local bottom-gap cleanup by deriving `bottom_gap_layers` from upstream's `bottom_gap_height`.
 
 ## Notes
 - If a smoke test / build step is needed, ask before starting for expensive C++ builds.

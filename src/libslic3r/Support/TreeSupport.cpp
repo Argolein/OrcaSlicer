@@ -2024,6 +2024,8 @@ void TreeSupport::draw_circles()
 
     // generate areas
     const coordf_t layer_height = config.layer_height.value;
+    const size_t   bottom_gap_layers = bottom_gap_height > EPSILON && layer_height > EPSILON ?
+        size_t(std::ceil(bottom_gap_height / layer_height)) : 0;
     const size_t   top_interface_layers = config.support_interface_top_layers.value;
     const size_t   bottom_interface_layers = config.support_interface_bottom_layers.value < 0 ? top_interface_layers : config.support_interface_bottom_layers.value;
     const double nozzle_diameter = m_object->print()->config().nozzle_diameter.get_at(0);

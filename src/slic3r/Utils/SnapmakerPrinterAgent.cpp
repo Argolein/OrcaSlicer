@@ -311,7 +311,6 @@ bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
     auto filament_type     = ptc.value("filament_type", std::vector<std::string>{});
     auto filament_sub_type = ptc.value("filament_sub_type", std::vector<std::string>{});
     auto filament_color    = ptc.value("filament_color_rgba", std::vector<std::string>{});
-    auto filament_vendor   = ptc.value("filament_vendor", std::vector<std::string>{});
 
     const int slot_count = static_cast<int>(filament_exist.size());
     if (slot_count == 0) {

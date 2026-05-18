@@ -4851,12 +4851,23 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("wall_filament", coInt);
     def->gui_type = ConfigOptionDef::GUIType::i_enum_open;
-    def->label = L("Walls");
+    def->label = L("Inner walls");
     def->category = L("Extruders");
-    def->tooltip = L("Filament to print walls.");
+    def->tooltip = L("Filament to print inner walls (and outer walls if outer wall filament is set to 'default').");
     def->min = 1;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionInt(1));
+
+    def = this->add("outer_wall_filament", coInt);
+    def->gui_type = ConfigOptionDef::GUIType::i_enum_open;
+    def->label = L("Outer walls");
+    def->category = L("Extruders");
+    def->tooltip = L("Filament to print outer walls. Set to 0 to use the same filament as inner walls. "
+                     "This is useful for toolchanger printers with different nozzle sizes: "
+                     "e.g. use a 0.2mm nozzle for fine outer walls and a 0.4mm nozzle for inner walls.");
+    def->min = 0;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(0));
 
     def = this->add("inner_wall_line_width", coFloatOrPercent);
     def->label = L("Inner wall");
@@ -8294,6 +8305,8 @@ void DynamicPrintConfig::normalize_fdm(int used_filaments)
                 this->option("sparse_infill_filament", true)->setInt(extruder);
             if (!this->has("wall_filament"))
                 this->option("wall_filament", true)->setInt(extruder);
+            if (!this->has("outer_wall_filament"))
+                this->option("outer_wall_filament", true)->setInt(0);
             // Don't propagate the current extruder to support.
             // For non-soluble supports, the default "0" extruder means to use the active extruder,
             // for soluble supports one certainly does not want to set the extruder to non-soluble.
@@ -8367,6 +8380,8 @@ void DynamicPrintConfig::normalize_fdm_1()
                 this->option("sparse_infill_filament", true)->setInt(extruder);
             if (!this->has("wall_filament"))
                 this->option("wall_filament", true)->setInt(extruder);
+            if (!this->has("outer_wall_filament"))
+                this->option("outer_wall_filament", true)->setInt(0);
             // Don't propagate the current extruder to support.
             // For non-soluble supports, the default "0" extruder means to use the active extruder,
             // for soluble supports one certainly does not want to set the extruder to non-soluble.

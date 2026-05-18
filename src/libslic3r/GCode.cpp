@@ -4870,6 +4870,12 @@ LayerResult GCode::process_layer(
                 // Now we must process perimeters and infills and create islands of extrusions in by_region std::map.
                 // It is also necessary to save which extrusions are part of MM wiping and which are not.
                 // The process is almost the same for perimeters and infills - we will do it in a cycle that repeats twice:
+
+                // Check if outer walls should use a different extruder than inner walls
+                unsigned int outer_wall_ext = layer_tools.outer_wall_filament(region);
+                unsigned int inner_wall_ext = layer_tools.wall_filament(region);
+                bool split_walls = (outer_wall_ext != inner_wall_ext) && (region.config().outer_wall_filament.value > 0);
+
                 std::vector<unsigned int> printing_extruders;
                 for (const ObjectByExtruder::Island::Region::Type entity_type : { ObjectByExtruder::Island::Region::INFILL, ObjectByExtruder::Island::Region::PERIMETERS }) {
                     for (const ExtrusionEntity *ee : (entity_type == ObjectByExtruder::Island::Region::INFILL) ? layerm->fills.entities : layerm->perimeters.entities) {
@@ -4878,6 +4884,36 @@ LayerResult GCode::process_layer(
                         const auto *extrusions = static_cast<const ExtrusionEntityCollection*>(ee);
                         if (extrusions->entities.empty()) // This shouldn't happen but first_point() would fail.
                             continue;
+
+                        // When outer_wall_filament differs from wall_filament, split perimeter entities
+                        // so outer walls go to one extruder and inner walls to another.
+                        if (split_walls && entity_type == ObjectByExtruder::Island::Region::PERIMETERS && extrusions->can_sort()) {
+                            // Split individual perimeter entities by role
+                            for (ExtrusionEntity *entity : extrusions->entities) {
+                                bool is_outer = is_external_perimeter(entity->role()) || entity->role() == erOverhangPerimeter;
+                                unsigned int ext_id = is_outer ? outer_wall_ext : inner_wall_ext;
+                                if (! layer_tools.has_extruder(ext_id))
+                                    ext_id = layer_tools.extruders.back();
+
+                                std::vector<ObjectByExtruder::Island> &islands = object_islands_by_extruder(
+                                    by_extruder, ext_id,
+                                    &layer_to_print - layers.data(),
+                                    layers.size(), n_slices+1);
+                                for (size_t i = 0; i <= n_slices; ++ i) {
+                                    bool   last = i == n_slices;
+                                    size_t island_idx = last ? n_slices : slices_test_order[i];
+                                    if (last || point_inside_surface(island_idx, entity->first_point())) {
+                                        if (islands[island_idx].by_region.empty())
+                                            islands[island_idx].by_region.assign(print.num_print_regions(), ObjectByExtruder::Island::Region());
+                                        // Add individual entity directly to the region's perimeters
+                                        islands[island_idx].by_region[region.print_region_id()].perimeters.emplace_back(entity);
+                                        islands[island_idx].by_region[region.print_region_id()].perimeters_overrides.emplace_back(nullptr);
+                                        break;
+                                    }
+                                }
+                            }
+                            continue; // Skip the normal path below
+                        }
 
                         // This extrusion is part of certain Region, which tells us which extruder should be used for it:
                         int correct_extruder_id = layer_tools.extruder(*extrusions, region);

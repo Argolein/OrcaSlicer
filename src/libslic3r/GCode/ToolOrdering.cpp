@@ -86,6 +86,17 @@ unsigned int LayerTools::wall_filament(const PrintRegion &region) const
 	return ((this->extruder_override == 0) ? region.config().wall_filament.value : this->extruder_override) - 1;
 }
 
+unsigned int LayerTools::outer_wall_filament(const PrintRegion &region) const
+{
+	if (this->extruder_override != 0)
+		return this->extruder_override - 1;
+	// outer_wall_filament == 0 means "use same as wall_filament"
+	int owf = region.config().outer_wall_filament.value;
+	if (owf <= 0)
+		return region.config().wall_filament.value - 1;
+	return owf - 1;
+}
+
 unsigned int LayerTools::sparse_infill_filament(const PrintRegion &region) const
 {
 	assert(region.config().sparse_infill_filament.value > 0);
@@ -683,6 +694,11 @@ void ToolOrdering::collect_extruders(const PrintObject &object, const std::vecto
 
                 if (something_nonoverriddable){
                		layer_tools.extruders.emplace_back((extruder_override == 0) ? region.config().wall_filament.value : extruder_override);
+                    // Also register the outer wall extruder if it differs from inner wall
+                    if (extruder_override == 0 && region.config().outer_wall_filament.value > 0 &&
+                        region.config().outer_wall_filament.value != region.config().wall_filament.value) {
+                        layer_tools.extruders.emplace_back(region.config().outer_wall_filament.value);
+                    }
                     if (layerCount == 0) {
                         firstLayerExtruders.emplace_back((extruder_override == 0) ? region.config().wall_filament.value : extruder_override);
                     }

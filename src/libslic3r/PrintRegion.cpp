@@ -72,6 +72,8 @@ void PrintRegion::collect_object_printing_extruders(const PrintConfig &print_con
     };
     if (region_config.wall_loops.value > 0 || has_brim)
     	emplace_extruder(region_config.wall_filament);
+    if (region_config.wall_loops.value > 0 && region_config.outer_wall_filament.value > 0)
+        emplace_extruder(region_config.outer_wall_filament);
     if (region_config.sparse_infill_density.value > 0)
     	emplace_extruder(region_config.sparse_infill_filament);
     if (region_config.top_shell_layers.value > 0 || region_config.bottom_shell_layers.value > 0)

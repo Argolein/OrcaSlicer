@@ -1518,6 +1518,7 @@ std::vector<int> PartPlate::get_extruders(bool conside_custom_gcode) const
 	int glb_support_intf_extr = glb_config.opt_int("support_interface_filament");
 	int glb_support_extr = glb_config.opt_int("support_filament");
 	int glb_wall_extr = glb_config.opt_int("wall_filament");
+	int glb_outer_wall_extr = glb_config.opt_int("outer_wall_filament");
 	int glb_sparse_infill_extr = glb_config.opt_int("sparse_infill_filament");
 	int glb_solid_infill_extr = glb_config.opt_int("solid_infill_filament");
 	bool glb_support = glb_config.opt_bool("enable_support");
@@ -1582,6 +1583,15 @@ std::vector<int> PartPlate::get_extruders(bool conside_custom_gcode) const
 		else if (glb_wall_extr != 1)
 			plate_extruders.push_back(glb_wall_extr);
 
+		int obj_outer_wall_extr = 0;
+		const ConfigOption* outer_wall_opt = mo->config.option("outer_wall_filament");
+		if (outer_wall_opt != nullptr)
+			obj_outer_wall_extr = outer_wall_opt->getInt();
+		if (obj_outer_wall_extr > 0)
+			plate_extruders.push_back(obj_outer_wall_extr);
+		else if (glb_outer_wall_extr > 0)
+			plate_extruders.push_back(glb_outer_wall_extr);
+
 		int obj_sparse_infill_extr = 1;
 		const ConfigOption* sparse_infill_opt = mo->config.option("sparse_infill_filament");
 		if (sparse_infill_opt != nullptr)
@@ -1630,6 +1640,7 @@ std::vector<int> PartPlate::get_extruders_under_cli(bool conside_custom_gcode, D
     int glb_support_intf_extr = full_config.opt_int("support_interface_filament");
     int glb_support_extr = full_config.opt_int("support_filament");
 	int glb_wall_extr = full_config.opt_int("wall_filament");
+	int glb_outer_wall_extr = full_config.opt_int("outer_wall_filament");
 	int glb_sparse_infill_extr = full_config.opt_int("sparse_infill_filament");
 	int glb_solid_infill_extr = full_config.opt_int("solid_infill_filament");
 
@@ -1703,6 +1714,15 @@ std::vector<int> PartPlate::get_extruders_under_cli(bool conside_custom_gcode, D
 				plate_extruders.push_back(obj_wall_extr);
 			else if (glb_wall_extr != 1)
 				plate_extruders.push_back(glb_wall_extr);
+
+			int obj_outer_wall_extr = 0;
+			const ConfigOption* outer_wall_opt = object->config.option("outer_wall_filament");
+			if (outer_wall_opt != nullptr)
+				obj_outer_wall_extr = outer_wall_opt->getInt();
+			if (obj_outer_wall_extr > 0)
+				plate_extruders.push_back(obj_outer_wall_extr);
+			else if (glb_outer_wall_extr > 0)
+				plate_extruders.push_back(glb_outer_wall_extr);
 
 			int obj_sparse_infill_extr = 1;
 			const ConfigOption* sparse_infill_opt = object->config.option("sparse_infill_filament");

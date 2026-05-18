@@ -709,6 +709,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_field("brim_flow_ratio", have_brim);
     // wall_filament uses the same logic as in Print::extruders()
     toggle_field("wall_filament", have_perimeters || have_brim);
+    toggle_field("outer_wall_filament", have_perimeters);
 
     bool have_brim_ear = (config->opt_enum<BrimType>("brim_type") == btEar);
     const auto brim_width = config->opt_float("brim_width");
@@ -832,7 +833,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("enable_tower_interface_cooldown_during_tower",
                 have_prime_tower && config->opt_bool("enable_tower_interface_features"));
 
-    for (auto el : {"wall_filament", "sparse_infill_filament", "solid_infill_filament", "wipe_tower_filament"})
+    for (auto el : {"wall_filament", "outer_wall_filament", "sparse_infill_filament", "solid_infill_filament", "wipe_tower_filament"})
         toggle_line(el, !bSEMM);
 
     bool purge_in_primetower = preset_bundle->printers.get_edited_preset().config.opt_bool("purge_in_prime_tower");

@@ -317,6 +317,7 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
             for (auto layerm : layer->regions()) {
                 auto region = layerm->region();
                 int wall_filament = region.config().wall_filament;
+                int outer_wall_filament = region.config().outer_wall_filament;
                 int solid_infill_filament = region.config().solid_infill_filament;
                 int sparse_infill_filament = region.config().sparse_infill_filament;
 
@@ -326,8 +327,12 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
                     if (sparse_infill_filament > 0)
                         geometric_unprintables[extruder_id].insert(sparse_infill_filament - 1);
                 }
-                if (!layerm->perimeters.entities.empty() && wall_filament > 0)
-                    geometric_unprintables[extruder_id].insert(wall_filament - 1);
+                if (!layerm->perimeters.entities.empty()) {
+                    if (wall_filament > 0)
+                        geometric_unprintables[extruder_id].insert(wall_filament - 1);
+                    if (outer_wall_filament > 0)
+                        geometric_unprintables[extruder_id].insert(outer_wall_filament - 1);
+                }
             }
         }
     }
@@ -1323,6 +1328,7 @@ bool PrintObject::invalidate_state_by_config_options(
         } else if (
                opt_key == "outer_wall_line_width"
             || opt_key == "wall_filament"
+            || opt_key == "outer_wall_filament"
             || opt_key == "fuzzy_skin"
             || opt_key == "fuzzy_skin_thickness"
             || opt_key == "fuzzy_skin_point_distance"

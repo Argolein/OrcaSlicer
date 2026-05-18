@@ -1077,6 +1077,7 @@ static std::vector<std::string> s_Preset_print_options{
     "support_remove_small_overhang",
     "filename_format",
     "wall_filament",
+    "outer_wall_filament",
     "support_bottom_z_distance",
     "sparse_infill_filament",
     "solid_infill_filament",

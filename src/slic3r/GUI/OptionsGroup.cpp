@@ -61,6 +61,7 @@ const t_field& OptionsGroup::build_field(const t_config_option_key& id, const Co
             case coFloatOrPercent:
             case coFloat:
             case coFloats:
+            case coFloatsOrPercents:
 			case coPercent:
 			case coPercents:
 			case coString:

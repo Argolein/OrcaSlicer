@@ -197,6 +197,7 @@ void Field::PostInitialize()
 	{
 	case coPercents:
 	case coFloats:
+	case coFloatsOrPercents:
 	case coStrings:
 	case coBools:
 	case coInts:
@@ -773,6 +774,17 @@ void TextCtrl::BUILD() {
 			text_value += "%";
 		break;
 	}
+	case coFloatsOrPercents:
+	{
+		const ConfigOptionFloatsOrPercents *vec = m_opt.get_default_value<ConfigOptionFloatsOrPercents>();
+		if (vec == nullptr || vec->empty()) break;
+		const FloatOrPercent &val = vec->get_at(m_opt_idx);
+		text_value = double_to_string(val.value);
+		if (val.percent)
+			text_value += "%";
+		m_last_meaningful_value = text_value;
+		break;
+	}
 	case coPercent:
 	{
 		text_value = wxString::Format(_T("%i"), int(m_opt.default_value->getFloat()));
@@ -936,6 +948,7 @@ bool TextCtrl::value_was_changed()
     case coString:
     case coStrings:
     case coFloatOrPercent:
+    case coFloatsOrPercents:
         return boost::any_cast<std::string>(m_value) != boost::any_cast<std::string>(val);
     default:
         return true;

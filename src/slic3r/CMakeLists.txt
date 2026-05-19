@@ -683,6 +683,8 @@ if (APPLE)
             GUI/Mouse3DHandlerMac.mm
             GUI/InstanceCheckMac.mm
             GUI/InstanceCheckMac.h
+            GUI/DeepLinkHandlerMac.mm
+            GUI/DeepLinkHandlerMac.h
             GUI/GUI_UtilsMac.mm
             GUI/wxMediaCtrl2.mm
             GUI/wxMediaCtrl2.h

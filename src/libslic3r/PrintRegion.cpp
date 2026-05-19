@@ -65,11 +65,14 @@ Flow PrintRegion::flow(const PrintObject &object, FlowRole role, double layer_he
     auto nozzle_diameter = float(print_config.nozzle_diameter.get_at(extruder_id - 1));
 
     // Per-extruder line width override (printer-level). When > 0 for this extruder,
-    // it replaces the per-feature line width with an absolute mm value.
+    // it replaces the per-feature line width. Supports both absolute mm and a
+    // percentage of the routed extruder's nozzle, so "100%" makes each toolhead use
+    // its own nozzle's width across all features (the common case for toolchangers
+    // with mixed nozzle sizes).
     if (extruder_id > 0 && extruder_id - 1 < print_config.extruder_line_width.values.size()) {
-        double override_w = print_config.extruder_line_width.get_at(extruder_id - 1);
-        if (override_w > 0)
-            config_width = ConfigOptionFloatOrPercent(override_w, false);
+        const FloatOrPercent &override_v = print_config.extruder_line_width.get_at(extruder_id - 1);
+        if (override_v.value > 0)
+            config_width = ConfigOptionFloatOrPercent(override_v.value, override_v.percent);
     }
 
     return Flow::new_from_config_width(role, config_width, nozzle_diameter, float(layer_height));

@@ -4708,19 +4708,21 @@ void PrintConfigDef::init_fff_params()
     def->max = 100;
     def->set_default_value(new ConfigOptionFloats { 0.4 });
 
-    def = this->add("extruder_line_width", coFloats);
+    def = this->add("extruder_line_width", coFloatsOrPercents);
     def->label = L("Line width override");
-    def->tooltip = L("Per-extruder line width override. When set to a value greater than 0, "
-                     "every feature printed by this extruder will use this absolute line width "
-                     "instead of the print profile's per-feature widths. Useful for toolchangers "
-                     "with different nozzle sizes (e.g. set 0.2 for the 0.2 mm nozzle toolhead "
-                     "and 0.8 for the 0.8 mm one). Set to 0 to disable and fall back to the "
-                     "print profile values.");
-    def->sidetext = L("mm");
+    def->tooltip = L("Per-extruder line width override. Set to a value greater than 0 to force every "
+                     "feature printed by this extruder to use this width, ignoring the print profile's "
+                     "per-feature widths. Useful for toolchangers with different nozzle sizes: enter "
+                     "\"100%\" (recommended) so each extruder uses 100% of its own nozzle diameter, or "
+                     "an absolute mm value (e.g. 0.21 for a 0.2 mm nozzle, 0.84 for a 0.8 mm nozzle). "
+                     "Set to 0 to disable and fall back to the print profile values.");
+    def->sidetext = L("mm or %");
+    def->ratio_over = "nozzle_diameter";
     def->mode = comAdvanced;
     def->min = 0;
-    def->max = 10;
-    def->set_default_value(new ConfigOptionFloats { 0.0 });
+    def->max = 1000;
+    def->max_literal = 10;
+    def->set_default_value(new ConfigOptionFloatsOrPercents { FloatOrPercent{0.0, false} });
 
     def = this->add("notes", coString);
     def->label = L("Configuration notes");

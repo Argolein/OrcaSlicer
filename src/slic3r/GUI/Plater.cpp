@@ -236,7 +236,6 @@ static bool orca_managed_extruder_mapping_enabled(PresetBundle* preset_bundle)
     return edited_printer_preset.printer_technology() == ptFFF &&
            !preset_bundle->is_bbl_vendor() &&
            !single_extruder_multi_material &&
-           preset_bundle->get_printer_extruder_count() > 1 &&
            use_physical_extruder_ids_only;
 }
 
@@ -2508,7 +2507,8 @@ void Sidebar::init_filament_combo(PlaterPresetComboBox **combo, const int filame
     edit_btn->Bind(wxEVT_BUTTON, [this, edit_btn, combobox, filament_idx](wxCommandEvent) {
         bool single_or_bbl     = should_show_SEMM_buttons();
         bool is_multi_material = p->combos_filament.size() > 1;
-        bool use_menu          = uses_filament_mapping_badges() || (single_or_bbl && is_multi_material);
+        const int physical_extruder_count = std::max(1, wxGetApp().preset_bundle->get_printer_extruder_count());
+        bool use_menu = (uses_filament_mapping_badges() && physical_extruder_count > 1) || (single_or_bbl && is_multi_material);
         if (use_menu) {
             update_filament_mapping_labels();
             auto menu = p->plater->filament_action_menu(filament_idx);

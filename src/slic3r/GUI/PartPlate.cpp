@@ -74,7 +74,6 @@ static bool orca_managed_extruder_mapping_enabled()
     return edited_printer_preset.printer_technology() == Slic3r::ptFFF &&
            !preset_bundle->is_bbl_vendor() &&
            !single_extruder_multi_material &&
-           preset_bundle->get_printer_extruder_count() > 1 &&
            use_physical_extruder_ids_only;
 }
 

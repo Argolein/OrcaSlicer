@@ -1552,7 +1552,7 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
         }
     }
 
-    if (opt_key == "single_extruder_multi_material" || opt_key == "extruders_count" ) {
+    if (opt_key == "single_extruder_multi_material" || opt_key == "extruders_count" || opt_key == "use_physical_extruder_ids_only") {
         update_wiping_button_visibility();
         wxGetApp().sidebar().update_filament_mapping_labels();
     }
@@ -1624,6 +1624,11 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
 
     if (opt_key == "single_extruder_multi_material"  ){
         wxGetApp().sidebar().show_SEMM_buttons();
+        wxGetApp().sidebar().update_filament_mapping_labels();
+        wxGetApp().get_tab(Preset::TYPE_PRINT)->update();
+    }
+
+    if (opt_key == "use_physical_extruder_ids_only") {
         wxGetApp().sidebar().update_filament_mapping_labels();
         wxGetApp().get_tab(Preset::TYPE_PRINT)->update();
     }

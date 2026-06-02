@@ -22,24 +22,25 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - No commit will be created unless explicitly requested.
 - Keep the branch's unified `append_tcr` wipe-tower path instead of reintroducing upstream's deleted `append_tcr2` implementation.
 - Combine the branch's preheat temperature override handling with upstream's post-process layer tracking for first-layer temperature selection.
+- Skip empty cherry-picks when the target branch already contains an equivalent change.
+- When cherry-picking multi-material mapping onto `ultimate-merge.v2`, preserve the branch's hotend placeholder support and sidebar behavior while switching tool-related placeholders to mapped output tool IDs.
 
 ## Handoff
 - Agent: Codex
-- Date: 2026-05-21
+- Date: 2026-06-02
 - Completed this session:
-  - Fetched the current `upstream/main` state.
-  - Started a no-commit merge of `upstream/main` into `ultimate-merge.v2`.
-  - Resolved the two new content conflicts in `src/libslic3r/GCode.cpp` and `src/libslic3r/GCode/GCodeProcessor.cpp`.
-  - Staged the resolved conflict files so the merge has no unresolved paths.
+  - Cherry-picked `691615f6d9` (`multi material mapping`) onto `ultimate-merge.v2`.
+  - Resolved cherry-pick conflicts in `src/libslic3r/GCode.cpp`, `src/libslic3r/GCodeWriter.cpp`, `src/slic3r/GUI/GUI_Factories.cpp`, `src/slic3r/GUI/Plater.cpp`, and `src/slic3r/GUI/Tab.cpp`.
+  - Verified the resolved tree with `git diff --check`.
 - Stopped at:
-  - The merge result is staged and ready for review; no merge commit was created.
+  - `ultimate-merge.v2` is one commit ahead of `origin/ultimate-merge.v2` with commit `ff9a5dd81c`.
 - Next step:
-  - Review the staged merge result, run any desired build/smoke test, and create the merge commit if acceptable.
+  - Review the cherry-picked result and run any desired build or smoke test before pushing.
 - Open blockers:
   - none
 - Decisions made this session:
-  - `GCode.cpp` keeps the branch's unified `append_tcr` wipe-tower path and does not restore upstream's deleted `append_tcr2` implementation.
-  - `GCodeProcessor.cpp` keeps branch preheat override handling while using upstream `current_layer_id` tracking for first-layer temperature selection.
+  - Commit `28456c6c3f` was skipped because the cherry-pick was empty on `ultimate-merge.v2`.
+  - Tool-related placeholders now use mapped output tool IDs while existing hotend placeholders remain available for custom G-code compatibility.
 
 ## Notes
 - If a smoke test / build step is needed, ask before starting for expensive C++ builds.

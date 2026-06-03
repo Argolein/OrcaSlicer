@@ -121,6 +121,35 @@ void sync_wipe_tower_rotation_config(double rotation_deg)
     *print_cfg.option<ConfigOptionFloat>("wipe_tower_rotation_angle", true)    = rotation;
 }
 
+static bool orca_managed_extruder_mapping_enabled(PresetBundle* preset_bundle)
+{
+    if (preset_bundle == nullptr)
+        return false;
+
+    const Preset& edited_printer_preset = preset_bundle->printers.get_edited_preset();
+    const DynamicPrintConfig& printer_config = edited_printer_preset.config;
+    const bool single_extruder_multi_material = printer_config.has("single_extruder_multi_material") &&
+                                                printer_config.opt_bool("single_extruder_multi_material");
+    const bool use_physical_extruder_ids_only = printer_config.has("use_physical_extruder_ids_only") &&
+                                                printer_config.opt_bool("use_physical_extruder_ids_only");
+    return edited_printer_preset.printer_technology() == ptFFF &&
+           !preset_bundle->is_bbl_vendor() &&
+           !single_extruder_multi_material &&
+           use_physical_extruder_ids_only;
+}
+
+static bool uses_orca_managed_single_physical_extruder_mapping(PresetBundle* preset_bundle, const DynamicPrintConfig& config)
+{
+    if (!orca_managed_extruder_mapping_enabled(preset_bundle))
+        return false;
+
+    const size_t physical_extruder_count = std::max(1, preset_bundle->get_printer_extruder_count());
+    const size_t logical_filament_count = config.has("filament_colour") ?
+        config.option<ConfigOptionStrings>("filament_colour")->values.size() :
+        0;
+    return physical_extruder_count == 1 && logical_filament_count > 1;
+}
+
 } // namespace
 
 #ifdef __WXGTK3__
@@ -2847,12 +2876,15 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
     // BBS
     if (printer_technology == ptFFF && m_config->has("filament_colour") && (m_canvas_type != ECanvasType::CanvasAssembleView)) {
         // Should the wipe tower be visualized ?
+        PresetBundle* preset_bundle = wxGetApp().preset_bundle;
         unsigned int filaments_count = (unsigned int)dynamic_cast<const ConfigOptionStrings*>(m_config->option("filament_colour"))->values.size();
+        const bool single_physical_orca_mapping =
+            uses_orca_managed_single_physical_extruder_mapping(preset_bundle, *m_config);
 
         bool wt = dynamic_cast<const ConfigOptionBool*>(m_config->option("enable_prime_tower"))->value;
         auto co = dynamic_cast<const ConfigOptionEnum<PrintSequence>*>(m_config->option<ConfigOptionEnum<PrintSequence>>("print_sequence"));
 
-        const DynamicPrintConfig &dconfig           = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        const DynamicPrintConfig &dconfig           = preset_bundle->prints.get_edited_preset().config;
         auto timelapse_type = dconfig.option<ConfigOptionEnum<TimelapseType>>("timelapse_type");
         bool need_wipe_tower = timelapse_type ? (timelapse_type->value == TimelapseType::tlSmooth) : false;
 
@@ -2860,7 +2892,8 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
             need_wipe_tower |= dynamic_cast<const ConfigOptionBool*>(dconfig.option("enable_wrapping_detection"))->value;
         }
 
-        if (wt && (need_wipe_tower || filaments_count > 1) && !wxGetApp().plater()->only_gcode_mode() && !wxGetApp().plater()->is_gcode_3mf()) {
+        const bool has_effective_wipe_tower_tools = need_wipe_tower || (!single_physical_orca_mapping && filaments_count > 1);
+        if (wt && has_effective_wipe_tower_tools && !wxGetApp().plater()->only_gcode_mode() && !wxGetApp().plater()->is_gcode_3mf()) {
             for (int plate_id = 0; plate_id < n_plates; plate_id++) {
                 // If print ByObject and there is only one object in the plate, the wipe tower is allowed to be generated.
                 PartPlate* part_plate = ppl.get_plate(plate_id);
@@ -2881,7 +2914,8 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
 
                 const Print* print = m_process->fff_print();
                 const Print* current_print = part_plate->fff_print();
-                if (!need_wipe_tower && part_plate->get_extruders(true).size() < 2) continue;
+                const size_t effective_tool_count = single_physical_orca_mapping ? 1u : part_plate->get_extruders(true).size();
+                if (!need_wipe_tower && effective_tool_count < 2) continue;
                 if (part_plate->get_objects_on_this_plate().empty()) continue;
 
                 float brim_width = print->wipe_tower_data(filaments_count).brim_width;

@@ -233,6 +233,7 @@ private:
 
     float m_legend_height;
     PrintEstimatedStatistics m_print_statistics;
+    bool m_collapse_managed_single_extruder_preview{ false };
     std::array<float, 2> m_detected_point_sizes = { 0.0f, 0.0f };
     GCodeProcessorResult::SettingsIds m_settings_ids;
 
@@ -368,4 +369,3 @@ private:
 } // namespace Slic3r
 
 #endif // slic3r_GCodeViewer_hpp_
-

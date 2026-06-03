@@ -2976,7 +2976,14 @@ static bool uses_orca_managed_extruder_mapping(const PrintConfig &config)
 {
     return config.use_physical_extruder_ids_only &&
            !config.single_extruder_multi_material &&
-           config.nozzle_diameter.values.size() > 1;
+           !config.nozzle_diameter.values.empty();
+}
+
+static bool uses_orca_managed_single_physical_extruder_mapping(const PrintConfig &config)
+{
+    return uses_orca_managed_extruder_mapping(config) &&
+           config.nozzle_diameter.values.size() == 1 &&
+           config.filament_colour.values.size() > 1;
 }
 
 static std::vector<int> normalize_filament_maps(const std::vector<int> &maps, size_t filament_count, size_t physical_extruder_count, bool use_orca_mapping)
@@ -3145,7 +3152,10 @@ bool Print::has_wipe_tower() const
         if (enable_timelapse_print())
             return true;
 
-        return !m_config.spiral_mode.value && m_config.filament_diameter.values.size() > 1;
+        const size_t effective_tool_count = uses_orca_managed_single_physical_extruder_mapping(m_config) ?
+            m_config.nozzle_diameter.values.size() :
+            m_config.filament_diameter.values.size();
+        return !m_config.spiral_mode.value && effective_tool_count > 1;
     }
     return false;
 }

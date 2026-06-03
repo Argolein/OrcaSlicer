@@ -1846,6 +1846,11 @@ void GCodeProcessorResult::reset() {
     filament_costs = std::vector<float>(MIN_EXTRUDERS_COUNT, DEFAULT_FILAMENT_COST);
     custom_gcode_per_print_z = std::vector<CustomGCode::Item>();
     spiral_vase_mode = false;
+    conflict_result.reset();
+    gcode_check_result.reset();
+    filament_printable_reuslt = FilamentPrintableResult();
+    initial_layer_time = 0.0f;
+    print_statistics.reset();
     layer_filaments.clear();
     filament_change_sequence.clear();
     nozzle_change_sequence.clear();
@@ -5700,6 +5705,25 @@ void GCodeProcessor::process_VT(const std::string_view command)
     auto [end, ec] = std::from_chars(payload.data(), payload.data() + payload.size(), filament_id);
     if (ec != std::errc() || end == payload.data() || filament_id >= m_result.filaments_count)
         return;
+
+    if (uses_physical_tool_ids() && filament_id < m_filament_maps.size()) {
+        const int mapped_extruder_id = m_filament_maps[filament_id];
+        const int current_extruder_id = get_extruder_id(false);
+        const int current_filament_id = get_filament_id(false);
+        if (mapped_extruder_id >= 0 &&
+            mapped_extruder_id == current_extruder_id &&
+            current_filament_id != static_cast<int>(filament_id)) {
+            if (current_extruder_id >= 0 && current_filament_id >= 0)
+                m_last_filament_id[current_extruder_id] = static_cast<unsigned char>(current_filament_id);
+
+            process_filaments(CustomGCode::ToolChange);
+            m_filament_id[current_extruder_id] = static_cast<unsigned char>(filament_id);
+            m_cp_color.current = m_extruder_colors[filament_id];
+            m_pending_logical_filament_id = -1;
+            store_move_vertex(EMoveType::Tool_change);
+            return;
+        }
+    }
 
     m_pending_logical_filament_id = static_cast<int>(filament_id);
 }

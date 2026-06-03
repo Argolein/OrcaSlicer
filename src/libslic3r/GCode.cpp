@@ -2309,7 +2309,7 @@ namespace DoExport {
         const bool use_physical_extruder_ids_only =
             cfg.has("use_physical_extruder_ids_only") &&
             cfg.opt_bool("use_physical_extruder_ids_only");
-        return physical_extruder_count(cfg) > 1 &&
+        return physical_extruder_count(cfg) > 0 &&
                !single_extruder_multi_material &&
                !print.is_BBL_printer() &&
                use_physical_extruder_ids_only;
@@ -3704,9 +3704,9 @@ size_t GCode::get_extruder_id(unsigned int filament_id) const
 
 bool GCode::uses_physical_tool_ids() const
 {
-    return m_writer.multiple_extruders &&
-           !m_config.single_extruder_multi_material &&
+    return !m_config.single_extruder_multi_material &&
            !is_BBL_Printer() &&
+           !m_config.nozzle_diameter.values.empty() &&
            m_config.use_physical_extruder_ids_only;
 }
 

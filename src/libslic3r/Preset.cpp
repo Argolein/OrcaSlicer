@@ -639,6 +639,8 @@ void Preset::remove_files(bool cloud_already_deleted)
 }
 
 //BBS: add logic for only difference save
+inline t_config_option_keys deep_diff(const ConfigBase &config_this, const ConfigBase &config_other, bool strict);
+
 void Preset::save(DynamicPrintConfig* parent_config)
 {
     //BBS: add project embedded preset logic
@@ -664,7 +666,7 @@ void Preset::save(DynamicPrintConfig* parent_config)
     //BBS: only save difference if it has parent
     if (parent_config) {
         DynamicPrintConfig temp_config;
-        std::vector<std::string> dirty_options = config.diff(*parent_config);
+        std::vector<std::string> dirty_options = deep_diff(config, *parent_config, true);
 
         std::string extruder_id_name, extruder_variant_name;
         std::set<std::string> *key_set1 = nullptr, *key_set2 = nullptr;
@@ -680,6 +682,8 @@ void Preset::save(DynamicPrintConfig* parent_config)
         for (auto option: dirty_options)
         {
             ConfigOption *opt_src = config.option(option);
+            if (opt_src == nullptr)
+                continue;
             ConfigOption *opt_dst = temp_config.option(option, true);
             if (opt_dst->is_scalar() || !(opt_dst->nullable()))
                 opt_dst->set(opt_src);
@@ -687,7 +691,7 @@ void Preset::save(DynamicPrintConfig* parent_config)
                 ConfigOptionVectorBase* opt_vec_src = static_cast<ConfigOptionVectorBase*>(opt_src);
                 ConfigOptionVectorBase* opt_vec_dst = static_cast<ConfigOptionVectorBase*>(opt_dst);
                 ConfigOptionVectorBase* opt_vec_inherit = static_cast<ConfigOptionVectorBase*>(parent_config->option(option));
-                if (opt_vec_src->size() == 1)
+                if (opt_vec_src->size() == 1 || opt_vec_inherit == nullptr)
                     opt_dst->set(opt_src);
                 else if (key_set1->find(option) != key_set1->end()) {
                     opt_vec_dst->set_with_nil(opt_vec_src, opt_vec_inherit, 1);
@@ -1334,7 +1338,7 @@ static std::vector<std::string> s_Preset_printer_options {
     "printer_technology",
     "printable_area", "extruder_printable_area", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "gcode_flavor",
     "fan_kickstart", "part_cooling_fan_min_pwm", "fan_speedup_time", "fan_speedup_overhangs",
-    "single_extruder_multi_material", "manual_filament_change", "file_start_gcode", "machine_start_gcode", "machine_end_gcode", "before_layer_change_gcode", "printing_by_object_gcode", "layer_change_gcode", "time_lapse_gcode", "wrapping_detection_gcode", "change_filament_gcode", "change_extrusion_role_gcode",
+    "single_extruder_multi_material", "use_physical_extruder_ids_only", "manual_filament_change", "file_start_gcode", "machine_start_gcode", "machine_end_gcode", "before_layer_change_gcode", "printing_by_object_gcode", "layer_change_gcode", "time_lapse_gcode", "wrapping_detection_gcode", "change_filament_gcode", "change_extrusion_role_gcode",
     "printer_model", "printer_variant", "printer_extruder_id", "printer_extruder_variant", "extruder_variant_list", "default_nozzle_volume_type",
     "printable_height", "extruder_printable_height", "extruder_clearance_radius", "extruder_clearance_height_to_lid", "extruder_clearance_height_to_rod",
     "nozzle_height", "master_extruder_id",
@@ -1760,7 +1764,7 @@ Preset* PresetCollection::get_preset_differed_for_save(Preset& preset)
         *new_preset = preset;
 
         DynamicPrintConfig temp_config;
-        std::vector<std::string> dirty_options = preset.config.diff(parent_preset->config);
+        std::vector<std::string> dirty_options = deep_diff(preset.config, parent_preset->config, true);
 
         std::string extruder_id_name, extruder_variant_name;
         std::set<std::string> *key_set1 = nullptr, *key_set2 = nullptr;
@@ -1776,6 +1780,8 @@ Preset* PresetCollection::get_preset_differed_for_save(Preset& preset)
         for (auto option: dirty_options)
         {
             ConfigOption *opt_src = preset.config.option(option);
+            if (opt_src == nullptr)
+                continue;
             ConfigOption *opt_dst = temp_config.option(option, true);
             if (opt_dst->is_scalar() || !(opt_dst->nullable()))
                 opt_dst->set(opt_src);
@@ -1783,7 +1789,7 @@ Preset* PresetCollection::get_preset_differed_for_save(Preset& preset)
                 ConfigOptionVectorBase* opt_vec_src = static_cast<ConfigOptionVectorBase*>(opt_src);
                 ConfigOptionVectorBase* opt_vec_dst = static_cast<ConfigOptionVectorBase*>(opt_dst);
                 ConfigOptionVectorBase* opt_vec_inherit = static_cast<ConfigOptionVectorBase*>(parent_preset->config.option(option));
-                if (opt_vec_src->size() == 1)
+                if (opt_vec_src->size() == 1 || opt_vec_inherit == nullptr)
                     opt_dst->set(opt_src);
                 else if (key_set1->find(option) != key_set1->end()) {
                     opt_vec_dst->set_with_nil(opt_vec_src, opt_vec_inherit, 1);
@@ -1819,7 +1825,7 @@ int PresetCollection::get_differed_values_to_update(Preset& preset, std::map<std
     }
     if (parent_preset) {
         DynamicPrintConfig temp_config;
-        std::vector<std::string> dirty_options = preset.config.diff(parent_preset->config);
+        std::vector<std::string> dirty_options = deep_diff(preset.config, parent_preset->config, true);
 
         for (auto option: dirty_options)
         {

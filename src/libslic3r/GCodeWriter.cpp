@@ -169,7 +169,7 @@ std::string GCodeWriter::set_temperature(unsigned int temperature, bool wait, in
 
 bool GCodeWriter::uses_strict_physical_tool_ids() const
 {
-    return multiple_extruders && !m_single_extruder_multi_material && !m_is_bbl_printers && m_use_physical_extruder_ids_only;
+    return !m_single_extruder_multi_material && !m_is_bbl_printers && m_use_physical_extruder_ids_only;
 }
 
 int GCodeWriter::get_output_tool_id(int tool) const
@@ -607,6 +607,9 @@ std::string GCodeWriter::toolchange_prefix() const
 
 std::string GCodeWriter::toolchange(unsigned int filament_id)
 {
+    const Extruder *previous_filament = filament();
+    const int previous_extruder_id = previous_filament != nullptr ? previous_filament->extruder_id() : -1;
+
     // set the new extruder
     auto filament_extruder_iter = Slic3r::lower_bound_by_predicate(m_filament_extruders.begin(), m_filament_extruders.end(), [filament_id](const Extruder &e) { return e.id() < filament_id; });
     assert(filament_extruder_iter != m_filament_extruders.end() && filament_extruder_iter->id() == filament_id);
@@ -623,14 +626,17 @@ std::string GCodeWriter::toolchange(unsigned int filament_id)
         if (uses_strict_physical_tool_ids())
             gcode << ";VT T" << filament_id << "\n";
 
-        if (this->m_is_bbl_printers)
-            gcode << "M1020 S" << filament_id;
-        else
-            gcode << this->toolchange_prefix() << toolchange_id;
-        if (GCodeWriter::full_gcode_comment)
-            gcode << " ; change extruder";
-        gcode << "\n";
-        gcode << this->reset_e(true);
+        const bool physical_tool_changed = previous_filament == nullptr || previous_extruder_id != static_cast<int>(filament_extruder_iter->extruder_id());
+        if (physical_tool_changed) {
+            if (this->m_is_bbl_printers)
+                gcode << "M1020 S" << filament_id;
+            else
+                gcode << this->toolchange_prefix() << toolchange_id;
+            if (GCodeWriter::full_gcode_comment)
+                gcode << " ; change extruder";
+            gcode << "\n";
+            gcode << this->reset_e(true);
+        }
     }
     return gcode.str();
 }

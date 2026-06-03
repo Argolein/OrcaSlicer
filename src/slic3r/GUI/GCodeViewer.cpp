@@ -125,6 +125,65 @@ static int find_close_layer_idx(const std::vector<double> &zs, double &z, double
     return -1;
 }
 
+static std::vector<uint8_t> get_displayed_used_filament_ids(const PrintEstimatedStatistics& stats, const std::vector<uint8_t>& fallback_ids = {})
+{
+    std::vector<uint8_t> ids;
+    auto append_ids = [&ids](const auto& volumes) {
+        for (const auto& [filament_id, volume] : volumes) {
+            if (volume <= 0.0 || filament_id > 255)
+                continue;
+            const uint8_t id = static_cast<uint8_t>(filament_id);
+            if (std::find(ids.begin(), ids.end(), id) == ids.end())
+                ids.push_back(id);
+        }
+    };
+
+    append_ids(stats.model_volumes_per_extruder);
+    append_ids(stats.support_volumes_per_extruder);
+    append_ids(stats.flush_per_filament);
+    append_ids(stats.wipe_tower_volumes_per_extruder);
+    append_ids(stats.total_volumes_per_extruder);
+
+    if (ids.empty())
+        return fallback_ids;
+
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+static std::vector<uint8_t> get_preview_filament_ids(const std::vector<uint8_t>& logical_ids, bool collapse_to_single_physical)
+{
+    if (collapse_to_single_physical && !logical_ids.empty())
+        return { 0 };
+    return logical_ids;
+}
+
+template <typename VolumeMap, typename Converter>
+static std::pair<double, double> get_preview_filament_usage(
+    const VolumeMap& volumes,
+    uint8_t displayed_id,
+    const std::vector<uint8_t>& logical_ids,
+    bool collapse_to_single_physical,
+    Converter&& convert_usage)
+{
+    if (!collapse_to_single_physical) {
+        auto it = volumes.find(displayed_id);
+        return it == volumes.end() ? std::pair<double, double> { 0.0, 0.0 } : convert_usage(it->second, displayed_id);
+    }
+
+    std::pair<double, double> usage { 0.0, 0.0 };
+    for (uint8_t logical_id : logical_ids) {
+        auto it = volumes.find(logical_id);
+        if (it == volumes.end())
+            continue;
+
+        auto [used_m, used_g] = convert_usage(it->second, logical_id);
+        usage.first += used_m;
+        usage.second += used_g;
+    }
+    return usage;
+}
+
 static std::string format_compact_weight(double value_in_grams, bool imperial_units)
 {
     char buffer[64];
@@ -1346,7 +1405,18 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     
     // ORCA: Only show filament/color print preview if more than one tool/extruder is actually used in the toolpaths.
     // Only reset back to Toolpaths (FeatureType) if we are currently in ColorPrint and this load is single-tool.
-    if (m_viewer.get_used_extruders_count() > 1) {
+    const ConfigOptionBool* use_physical_extruder_ids_only = print.config().option<ConfigOptionBool>("use_physical_extruder_ids_only");
+    const ConfigOptionBool* single_extruder_multi_material = print.config().option<ConfigOptionBool>("single_extruder_multi_material");
+    const ConfigOptionFloats* nozzle_diameter = print.config().option<ConfigOptionFloats>("nozzle_diameter");
+    m_collapse_managed_single_extruder_preview =
+        use_physical_extruder_ids_only != nullptr && use_physical_extruder_ids_only->value &&
+        single_extruder_multi_material != nullptr && !single_extruder_multi_material->value &&
+        nozzle_diameter != nullptr && nozzle_diameter->values.size() == 1 &&
+        !print.is_BBL_printer();
+
+    const std::vector<uint8_t> logical_displayed_filament_ids = get_displayed_used_filament_ids(m_print_statistics, m_viewer.get_used_extruders_ids());
+    const std::vector<uint8_t> displayed_filament_ids = get_preview_filament_ids(logical_displayed_filament_ids, m_collapse_managed_single_extruder_preview);
+    if (displayed_filament_ids.size() > 1) {
         auto it = std::find(view_type_items.begin(), view_type_items.end(), libvgcode::EViewType::ColorPrint);
         if (it != view_type_items.end())
             m_view_type_sel = std::distance(view_type_items.begin(), it);
@@ -1366,7 +1436,7 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     std::vector<std::string> color_opt     = print.config().option<ConfigOptionStrings>("filament_colour")->values;
     std::vector<std::string> type_opt      = print.config().option<ConfigOptionStrings>("filament_type")->values;
     std::vector<unsigned char> support_filament_opt = print.config().option<ConfigOptionBools>("filament_is_support")->values;
-    for (auto extruder_id : m_viewer.get_used_extruders_ids()) {
+    for (auto extruder_id : logical_displayed_filament_ids) {
         if (filament_maps[extruder_id] == 1) {
             m_left_extruder_filament.push_back({type_opt[extruder_id], color_opt[extruder_id], extruder_id, (bool)(support_filament_opt[extruder_id])});
         } else {
@@ -1456,7 +1526,7 @@ void GCodeViewer::load_as_gcode(const GCodeProcessorResult& gcode_result, const 
     }
 
     // set to color print by default if use multi extruders
-    if (m_viewer.get_used_extruders_count() > 1) {
+    if (displayed_filament_ids.size() > 1) {
         for (int i = 0; i < view_type_items.size(); i++) {
             if (view_type_items[i] == libvgcode::EViewType::ColorPrint) {
                 m_view_type_sel = i;
@@ -1567,6 +1637,7 @@ void GCodeViewer::reset()
         move_type_times.fill(0.0f);
     m_move_type_distances.fill(0.0f);
     m_print_statistics.reset();
+    m_collapse_managed_single_extruder_preview = false;
     m_custom_gcode_per_print_z = std::vector<CustomGCode::Item>();
     m_left_extruder_filament.clear();
     m_right_extruder_filament.clear();
@@ -3554,20 +3625,26 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
     int displayed_columns = 0;
     std::map<std::string, float> color_print_offsets;
     const PrintStatistics& ps = wxGetApp().plater()->get_partplate_list().get_current_fff_print().print_statistics();
+    const std::vector<uint8_t> logical_displayed_filament_ids = get_displayed_used_filament_ids(m_print_statistics, m_viewer.get_used_extruders_ids());
+    const std::vector<uint8_t> displayed_filament_ids = get_preview_filament_ids(logical_displayed_filament_ids, m_collapse_managed_single_extruder_preview);
     double koef = imperial_units ? GizmoObjectManipulation::in_to_mm : 1000.0;
     double unit_conver = imperial_units ? GizmoObjectManipulation::oz_to_g : 1;
     std::vector<double> used_filaments_m;
     std::vector<double> used_filaments_g;
 
     // used filament statistics
-    for (size_t extruder_id : m_viewer.get_used_extruders_ids()) {
-        if (m_print_statistics.model_volumes_per_extruder.find(extruder_id) == m_print_statistics.model_volumes_per_extruder.end()) {
+    for (size_t extruder_id : displayed_filament_ids) {
+        auto [model_used_filament_m, model_used_filament_g] = get_preview_filament_usage(
+            m_print_statistics.model_volumes_per_extruder,
+            static_cast<uint8_t>(extruder_id),
+            logical_displayed_filament_ids,
+            m_collapse_managed_single_extruder_preview,
+            get_used_filament_from_volume);
+        if (model_used_filament_m <= 0.0 && model_used_filament_g <= 0.0) {
             model_used_filaments_m.push_back(0.0);
             model_used_filaments_g.push_back(0.0);
         }
         else {
-            double volume = m_print_statistics.model_volumes_per_extruder.at(extruder_id);
-            auto [model_used_filament_m, model_used_filament_g] = get_used_filament_from_volume(volume, extruder_id);
             model_used_filaments_m.push_back(model_used_filament_m);
             model_used_filaments_g.push_back(model_used_filament_g);
             total_model_used_filament_m += model_used_filament_m;
@@ -3576,14 +3653,18 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         }
     }
 
-    for (size_t extruder_id : m_viewer.get_used_extruders_ids()) {
-        if (m_print_statistics.wipe_tower_volumes_per_extruder.find(extruder_id) == m_print_statistics.wipe_tower_volumes_per_extruder.end()) {
+    for (size_t extruder_id : displayed_filament_ids) {
+        auto [wipe_tower_used_filament_m, wipe_tower_used_filament_g] = get_preview_filament_usage(
+            m_print_statistics.wipe_tower_volumes_per_extruder,
+            static_cast<uint8_t>(extruder_id),
+            logical_displayed_filament_ids,
+            m_collapse_managed_single_extruder_preview,
+            get_used_filament_from_volume);
+        if (wipe_tower_used_filament_m <= 0.0 && wipe_tower_used_filament_g <= 0.0) {
             wipe_tower_used_filaments_m.push_back(0.0);
             wipe_tower_used_filaments_g.push_back(0.0);
         }
         else {
-            double volume = m_print_statistics.wipe_tower_volumes_per_extruder.at(extruder_id);
-            auto [wipe_tower_used_filament_m, wipe_tower_used_filament_g] = get_used_filament_from_volume(volume, extruder_id);
             wipe_tower_used_filaments_m.push_back(wipe_tower_used_filament_m);
             wipe_tower_used_filaments_g.push_back(wipe_tower_used_filament_g);
             total_wipe_tower_used_filament_m += wipe_tower_used_filament_m;
@@ -3592,14 +3673,18 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         }
     }
 
-    for (size_t extruder_id : m_viewer.get_used_extruders_ids()) {
-        if (m_print_statistics.flush_per_filament.find(extruder_id) == m_print_statistics.flush_per_filament.end()) {
+    for (size_t extruder_id : displayed_filament_ids) {
+        auto [flushed_filament_m, flushed_filament_g] = get_preview_filament_usage(
+            m_print_statistics.flush_per_filament,
+            static_cast<uint8_t>(extruder_id),
+            logical_displayed_filament_ids,
+            m_collapse_managed_single_extruder_preview,
+            get_used_filament_from_volume);
+        if (flushed_filament_m <= 0.0 && flushed_filament_g <= 0.0) {
             flushed_filaments_m.push_back(0.0);
             flushed_filaments_g.push_back(0.0);
         }
         else {
-            double volume = m_print_statistics.flush_per_filament.at(extruder_id);
-            auto [flushed_filament_m, flushed_filament_g] = get_used_filament_from_volume(volume, extruder_id);
             flushed_filaments_m.push_back(flushed_filament_m);
             flushed_filaments_g.push_back(flushed_filament_g);
             total_flushed_filament_m += flushed_filament_m;
@@ -3608,14 +3693,18 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         }
     }
 
-    for (size_t extruder_id : m_viewer.get_used_extruders_ids()) {
-        if (m_print_statistics.support_volumes_per_extruder.find(extruder_id) == m_print_statistics.support_volumes_per_extruder.end()) {
+    for (size_t extruder_id : displayed_filament_ids) {
+        auto [used_filament_m, used_filament_g] = get_preview_filament_usage(
+            m_print_statistics.support_volumes_per_extruder,
+            static_cast<uint8_t>(extruder_id),
+            logical_displayed_filament_ids,
+            m_collapse_managed_single_extruder_preview,
+            get_used_filament_from_volume);
+        if (used_filament_m <= 0.0 && used_filament_g <= 0.0) {
             support_used_filaments_m.push_back(0.0);
             support_used_filaments_g.push_back(0.0);
         }
         else {
-            double volume = m_print_statistics.support_volumes_per_extruder.at(extruder_id);
-            auto [used_filament_m, used_filament_g] = get_used_filament_from_volume(volume, extruder_id);
             support_used_filaments_m.push_back(used_filament_m);
             support_used_filaments_g.push_back(used_filament_g);
             total_support_used_filament_m += used_filament_m;
@@ -3717,16 +3806,20 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
     case libvgcode::EViewType::Tool:
     {
         // calculate used filaments data
-        const size_t extruders_count = get_extruders_count();
-        used_filaments_m = std::vector<double>(extruders_count, 0.0);
-        used_filaments_g = std::vector<double>(extruders_count, 0.0);
-        const std::vector<uint8_t>& used_extruders_ids = m_viewer.get_used_extruders_ids();
-        for (uint8_t extruder_id : used_extruders_ids) {
-            if (m_print_statistics.model_volumes_per_extruder.find(extruder_id) == m_print_statistics.model_volumes_per_extruder.end())
+        used_filaments_m.clear();
+        used_filaments_g.clear();
+        used_filaments_m.reserve(displayed_filament_ids.size());
+        used_filaments_g.reserve(displayed_filament_ids.size());
+        for (uint8_t extruder_id : displayed_filament_ids) {
+            auto [model_used_filament_m, model_used_filament_g] = get_preview_filament_usage(
+                m_print_statistics.model_volumes_per_extruder,
+                extruder_id,
+                logical_displayed_filament_ids,
+                m_collapse_managed_single_extruder_preview,
+                get_used_filament_from_volume);
+            if (model_used_filament_m <= 0.0 && model_used_filament_g <= 0.0)
                 continue;
-            double volume = m_print_statistics.model_volumes_per_extruder.at(extruder_id);
 
-            auto [model_used_filament_m, model_used_filament_g] = get_used_filament_from_volume(volume, extruder_id);
             model_used_filaments_m.push_back(model_used_filament_m);
             model_used_filaments_g.push_back(model_used_filament_g);
         }
@@ -3987,8 +4080,7 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         // shows only extruders actually used
         char buf[64];
         size_t i = 0;
-        const std::vector<uint8_t>& used_extruders_ids = m_viewer.get_used_extruders_ids();
-        for (uint8_t extruder_id : used_extruders_ids) {
+        for (uint8_t extruder_id : displayed_filament_ids) {
             const std::string weight_text = format_compact_weight(model_used_filaments_g[i], imperial_units);
             ::sprintf(buf, imperial_units ? "%.2f in    %s" : "%.2f m    %s", model_used_filaments_m[i], weight_text.c_str());
             append_item(EItemType::Rect, libvgcode::convert(m_viewer.get_tool_colors()[extruder_id]), { { _u8L("Extruder") + " " + std::to_string(extruder_id + 1), offsets[0]}, {buf, offsets[1]} });
@@ -4039,9 +4131,8 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
 
         // shows only extruders actually used
         size_t i = 0;
-        const std::vector<uint8_t>& used_extruders_ids = m_viewer.get_used_extruders_ids();
         auto tool_colors = m_viewer.get_tool_colors();
-        for (auto extruder_idx : used_extruders_ids) {
+        for (auto extruder_idx : displayed_filament_ids) {
             if (i < model_used_filaments_m.size() && i < model_used_filaments_g.size()) {
                 std::vector<std::pair<std::string, float>> columns_offsets;
                 columns_offsets.push_back({ std::to_string(extruder_idx + 1), color_print_offsets[_u8L("Filament")]});
@@ -4097,7 +4188,7 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
 
         // Sum of all rows
         char buf[64];
-        if (used_extruders_ids.size() > 1) {
+        if (displayed_filament_ids.size() > 1) {
             // Separator
             ImGuiWindow* window = ImGui::GetCurrentWindow();
             const ImRect separator(ImVec2(window->Pos.x + window_padding * 3, window->DC.CursorPos.y), ImVec2(window->Pos.x + window->Size.x - window_padding * 3, window->DC.CursorPos.y + 1.0f));
@@ -4199,6 +4290,23 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
             for (size_t i = 0; i < extruders_count; ++i) {
                 last_color[i] = libvgcode::convert(m_viewer.get_tool_colors()[i]);
             }
+            auto safe_color = [&last_color](int extruder_1based) -> ColorRGBA {
+                const int idx = extruder_1based - 1;
+                if (idx >= 0 && idx < static_cast<int>(last_color.size()))
+                    return last_color[idx];
+                return ColorRGBA::BLACK();
+            };
+            auto set_safe_color = [&last_color](int extruder_1based, const ColorRGBA& color) {
+                const int idx = extruder_1based - 1;
+                if (idx >= 0 && idx < static_cast<int>(last_color.size()))
+                    last_color[idx] = color;
+            };
+            auto safe_used_filament = [&used_filaments, &get_used_filament_from_volume](int& color_change_idx, int extruder_1based) {
+                if (color_change_idx < 0 || color_change_idx >= static_cast<int>(used_filaments.size()))
+                    return std::pair<double, double> {0.0, 0.0};
+                const int filament_idx = std::max(0, extruder_1based - 1);
+                return get_used_filament_from_volume(used_filaments[color_change_idx++], filament_idx);
+            };
             int last_extruder_id = 1;
             int color_change_idx = 0;
             for (const auto& time_rec : times) {
@@ -4207,7 +4315,7 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
                 case CustomGCode::PausePrint: {
                     auto it = std::find_if(custom_gcode_per_print_z.begin(), custom_gcode_per_print_z.end(), [time_rec](const CustomGCode::Item& item) { return item.type == time_rec.first; });
                     if (it != custom_gcode_per_print_z.end()) {
-                        items.push_back({ PartialTime::EType::Print, it->extruder, last_color[it->extruder - 1], ColorRGBA::BLACK(), time_rec.second });
+                        items.push_back({ PartialTime::EType::Print, it->extruder, safe_color(it->extruder), ColorRGBA::BLACK(), time_rec.second });
                         items.push_back({ PartialTime::EType::Pause, it->extruder, ColorRGBA::BLACK(), ColorRGBA::BLACK(), time_rec.second });
                         custom_gcode_per_print_z.erase(it);
                     }
@@ -4216,16 +4324,16 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
                 case CustomGCode::ColorChange: {
                     auto it = std::find_if(custom_gcode_per_print_z.begin(), custom_gcode_per_print_z.end(), [time_rec](const CustomGCode::Item& item) { return item.type == time_rec.first; });
                     if (it != custom_gcode_per_print_z.end()) {
-                        items.push_back({ PartialTime::EType::Print, it->extruder, last_color[it->extruder - 1], ColorRGBA::BLACK(), time_rec.second, get_used_filament_from_volume(used_filaments[color_change_idx++], it->extruder - 1) });
+                        items.push_back({ PartialTime::EType::Print, it->extruder, safe_color(it->extruder), ColorRGBA::BLACK(), time_rec.second, safe_used_filament(color_change_idx, it->extruder) });
                         ColorRGBA color;
                         decode_color(it->color, color);
-                        items.push_back({ PartialTime::EType::ColorChange, it->extruder, last_color[it->extruder - 1], color, time_rec.second });
-                        last_color[it->extruder - 1] = color;
+                        items.push_back({ PartialTime::EType::ColorChange, it->extruder, safe_color(it->extruder), color, time_rec.second });
+                        set_safe_color(it->extruder, color);
                         last_extruder_id = it->extruder;
                         custom_gcode_per_print_z.erase(it);
                     }
                     else
-                        items.push_back({ PartialTime::EType::Print, last_extruder_id, last_color[last_extruder_id - 1], ColorRGBA::BLACK(), time_rec.second, get_used_filament_from_volume(used_filaments[color_change_idx++], last_extruder_id - 1) });
+                        items.push_back({ PartialTime::EType::Print, last_extruder_id, safe_color(last_extruder_id), ColorRGBA::BLACK(), time_rec.second, safe_used_filament(color_change_idx, last_extruder_id) });
 
                     break;
                 }
@@ -4429,14 +4537,16 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
     show_settings &= (new_view_type == libvgcode::EViewType::FeatureType || new_view_type == libvgcode::EViewType::Tool);
     show_settings &= has_settings;
     if (show_settings) {
-        auto calc_offset = [this]() {
+        const std::vector<uint8_t> logical_displayed_filament_ids = get_displayed_used_filament_ids(m_print_statistics, m_viewer.get_used_extruders_ids());
+        const std::vector<uint8_t> displayed_filament_ids = get_preview_filament_ids(logical_displayed_filament_ids, m_collapse_managed_single_extruder_preview);
+        auto calc_offset = [this, &displayed_filament_ids]() {
             float ret = 0.0f;
             if (!m_settings_ids.printer.empty())
                 ret = std::max(ret, ImGui::CalcTextSize((_u8L("Printer") + std::string(":")).c_str()).x);
             if (!m_settings_ids.print.empty())
                 ret = std::max(ret, ImGui::CalcTextSize((_u8L("Print settings") + std::string(":")).c_str()).x);
             if (!m_settings_ids.filament.empty()) {
-                for (unsigned char i : m_viewer.get_used_extruders_ids()) {
+                for (unsigned char i : displayed_filament_ids) {
                     ret = std::max(ret, ImGui::CalcTextSize((_u8L("Filament") + " " + std::to_string(i + 1) + ":").c_str()).x);
                 }
             }
@@ -4461,10 +4571,10 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
             imgui.text(m_settings_ids.print);
         }
         if (!m_settings_ids.filament.empty()) {
-            for (unsigned char i : m_viewer.get_used_extruders_ids()) {
+            for (unsigned char i : displayed_filament_ids) {
                 if (i < static_cast<unsigned char>(m_settings_ids.filament.size()) && !m_settings_ids.filament[i].empty()) {
                     std::string txt = _u8L("Filament");
-                    txt += (m_viewer.get_used_extruders_count() == 1) ? ":" : " " + std::to_string(i + 1);
+                    txt += (displayed_filament_ids.size() == 1) ? ":" : " " + std::to_string(i + 1);
                     imgui.text(txt);
                     ImGui::SameLine(offset);
                     imgui.text(m_settings_ids.filament[i]);
@@ -4714,4 +4824,3 @@ void GCodeViewer::render_slider(int canvas_width, int canvas_height) {
 
 } // namespace GUI
 } // namespace Slic3r
-

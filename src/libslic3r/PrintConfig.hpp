@@ -513,6 +513,58 @@ static std::string get_bed_temp_1st_layer_key(const BedType type)
     return "";
 }
 
+static std::string get_bed_type_z_offset_key(const BedType type)
+{
+    if (type == btSuperTack)
+        return "supertack_plate_z_offset";
+
+    if (type == btPC)
+        return "cool_plate_z_offset";
+
+    if (type == btPCT)
+        return "textured_cool_plate_z_offset";
+
+    if (type == btEP)
+        return "eng_plate_z_offset";
+
+    if (type == btPEI)
+        return "hot_plate_z_offset";
+
+    if (type == btPTE)
+        return "textured_plate_z_offset";
+
+    return "";
+}
+
+template <typename ConfigT>
+static bool is_bed_type_specific_z_offset_enabled(const ConfigT& config)
+{
+    const ConfigOptionBool* support_multi_bed_types = config.template option<ConfigOptionBool>("support_multi_bed_types");
+    const ConfigOptionBool* specific_z_offset       = config.template option<ConfigOptionBool>("bed_type_specific_z_offset");
+    return support_multi_bed_types != nullptr && support_multi_bed_types->value &&
+           specific_z_offset != nullptr && specific_z_offset->value;
+}
+
+template <typename ConfigT>
+static double get_active_z_offset(const ConfigT& config)
+{
+    const ConfigOptionFloat* global_z_offset = config.template option<ConfigOptionFloat>("z_offset");
+    const double             fallback        = global_z_offset != nullptr ? global_z_offset->value : 0.0;
+    if (!is_bed_type_specific_z_offset_enabled(config))
+        return fallback;
+
+    const ConfigOptionEnumGeneric* bed_type = config.template option<ConfigOptionEnumGeneric>("curr_bed_type");
+    if (bed_type == nullptr)
+        return fallback;
+
+    const std::string bed_type_z_offset_key = get_bed_type_z_offset_key(static_cast<BedType>(bed_type->value));
+    if (bed_type_z_offset_key.empty())
+        return fallback;
+
+    const ConfigOptionFloat* bed_type_z_offset = config.template option<ConfigOptionFloat>(bed_type_z_offset_key);
+    return bed_type_z_offset != nullptr ? bed_type_z_offset->value : fallback;
+}
+
 extern const std::vector<std::string> filament_extruder_override_keys;
 
 // for parse extruder_ams_count
@@ -1471,6 +1523,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                enable_filament_ramming))
     ((ConfigOptionBool,                tool_change_on_wipe_tower))
     ((ConfigOptionBool,                support_multi_bed_types))
+    ((ConfigOptionBool,                bed_type_specific_z_offset))
 
     // Small Area Infill Flow Compensation
     ((ConfigOptionStrings,              small_area_infill_flow_compensation_model))
@@ -1621,6 +1674,12 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionFloat,              prime_volume))
     ((ConfigOptionFloats,             flush_multiplier))
     ((ConfigOptionFloat,              z_offset))
+    ((ConfigOptionFloat,              cool_plate_z_offset))
+    ((ConfigOptionFloat,              eng_plate_z_offset))
+    ((ConfigOptionFloat,              hot_plate_z_offset))
+    ((ConfigOptionFloat,              textured_plate_z_offset))
+    ((ConfigOptionFloat,              textured_cool_plate_z_offset))
+    ((ConfigOptionFloat,              supertack_plate_z_offset))
     // BBS: project filaments
     ((ConfigOptionFloats,             filament_colour_new))
     // BBS: not in any preset, calculated before slicing

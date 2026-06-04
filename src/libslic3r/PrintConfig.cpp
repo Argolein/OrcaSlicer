@@ -3828,6 +3828,12 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionBool(false));
 
+    def = this->add("bed_type_specific_z_offset", coBool);
+    def->label = L("Bed type specific Z offset");
+    def->tooltip = L("Enable this option to override the global Z offset with bed type specific values.");
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("gcode_label_objects", coBool);
     def->label = L("Label objects");
     def->tooltip = L("Enable this to add comments into the G-code labeling print moves with what object they belong to,"
@@ -5897,6 +5903,48 @@ void PrintConfigDef::init_fff_params()
                    "for example, if your endstop zero actually leaves the nozzle 0.3mm far "
                    "from the print bed, set this to -0.3 (or fix your endstop).");
     def->sidetext = L("mm");	// millimeters, CIS languages need translation
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("cool_plate_z_offset", coFloat);
+    def->label = L("Smooth Cool Plate");
+    def->tooltip = L("This value will override the global Z offset when the Smooth Cool Plate bed type is active.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("eng_plate_z_offset", coFloat);
+    def->label = L("Engineering Plate");
+    def->tooltip = L("This value will override the global Z offset when the Engineering Plate bed type is active.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("hot_plate_z_offset", coFloat);
+    def->label = L("Smooth High Temp Plate");
+    def->tooltip = L("This value will override the global Z offset when the Smooth High Temp Plate bed type is active.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("textured_plate_z_offset", coFloat);
+    def->label = L("Textured PEI Plate");
+    def->tooltip = L("This value will override the global Z offset when the Textured PEI Plate bed type is active.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("textured_cool_plate_z_offset", coFloat);
+    def->label = L("Textured Cool Plate");
+    def->tooltip = L("This value will override the global Z offset when the Textured Cool Plate bed type is active.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
+    def = this->add("supertack_plate_z_offset", coFloat);
+    def->label = L("Cool Plate (SuperTack)");
+    def->tooltip = L("This value will override the global Z offset when the Cool Plate (SuperTack) bed type is active.");
+    def->sidetext = L("mm");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0));
     

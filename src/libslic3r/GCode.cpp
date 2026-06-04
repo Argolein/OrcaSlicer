@@ -3007,7 +3007,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         this->placeholder_parser().set("first_layer_bed_temperature", new ConfigOptionInts(*first_bed_temp_opt));
         this->placeholder_parser().set("first_layer_temperature", new ConfigOptionInts(m_config.nozzle_temperature_initial_layer));
         this->placeholder_parser().set("max_print_height",new ConfigOptionInt(m_config.printable_height));
-        this->placeholder_parser().set("z_offset", new ConfigOptionFloat(m_config.z_offset));
+        this->placeholder_parser().set("z_offset", new ConfigOptionFloat(get_active_z_offset(m_config)));
         this->placeholder_parser().set("model_name", new ConfigOptionString(print.get_model_name()));
         this->placeholder_parser().set("plate_number", new ConfigOptionString(print.get_plate_number_formatted()));
         this->placeholder_parser().set("plate_name", new ConfigOptionString(print.get_plate_name()));
@@ -3332,7 +3332,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                 m_wipe_tower->set_wipe_tower_bbx(print.get_wipe_tower_bbx());
                 m_wipe_tower->set_rib_offset(print.get_rib_offset());
                 //BBS
-                file.write(m_writer.travel_to_z(initial_layer_print_height + m_config.z_offset.value, "Move to the first layer height"));
+                file.write(m_writer.travel_to_z(initial_layer_print_height + get_active_z_offset(m_config), "Move to the first layer height"));
 
                 if (wipe_tower_type == WipeTowerType::Type2 && print.config().single_extruder_multi_material_priming) {
                     file.write(m_wipe_tower->prime(*this));
@@ -3428,7 +3428,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         DynamicConfig config;
         config.set_key_value("layer_num", new ConfigOptionInt(m_layer_index));
         //BBS
-        config.set_key_value("layer_z",   new ConfigOptionFloat(m_writer.get_position()(2) - m_config.z_offset.value));
+        config.set_key_value("layer_z",   new ConfigOptionFloat(m_writer.get_position()(2) - get_active_z_offset(m_config)));
         config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
 
         if (print.config().single_extruder_multi_material) {
@@ -5608,7 +5608,7 @@ std::string GCode::preamble()
         position of our writer object so that any initial lift taking place
         before the first layer change will raise the extruder from the correct
         initial Z instead of 0.  */
-    m_writer.travel_to_z(m_config.z_offset.value);
+    m_writer.travel_to_z(get_active_z_offset(m_config));
 
     return gcode;
 }
@@ -5621,7 +5621,7 @@ std::string GCode::change_layer(coordf_t print_z)
         // Increment a progress bar indicator.
         gcode += m_writer.update_progress(++ m_layer_index, m_layer_count);
     //BBS
-    coordf_t z = print_z + m_config.z_offset.value;  // in unscaled coordinates
+    coordf_t z = print_z + static_cast<coordf_t>(get_active_z_offset(m_config));  // in unscaled coordinates
     if (FILAMENT_CONFIG(retract_when_changing_layer) && m_writer.will_move_z(z)) {
         LiftType lift_type = this->to_lift_type(ZHopType(FILAMENT_CONFIG(z_hop_types)));
         //BBS: force to use SpiralLift when change layer if lift type is auto
@@ -7656,7 +7656,7 @@ std::string GCode::set_extruder(unsigned int new_filament_id, double print_z, bo
             // Process the filament_start_gcode for the filament.
             DynamicConfig config;
             config.set_key_value("layer_num", new ConfigOptionInt(m_layer_index));
-            config.set_key_value("layer_z", new ConfigOptionFloat(this->writer().get_position().z() - m_config.z_offset.value));
+            config.set_key_value("layer_z", new ConfigOptionFloat(this->writer().get_position().z() - get_active_z_offset(m_config)));
             config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
             config.set_key_value("filament_extruder_id", new ConfigOptionInt(int(new_filament_id)));
             config.set_key_value("retraction_distance_when_cut",
@@ -7699,7 +7699,7 @@ std::string GCode::set_extruder(unsigned int new_filament_id, double print_z, bo
         if (! filament_end_gcode.empty()) {
             DynamicConfig config;
             config.set_key_value("layer_num", new ConfigOptionInt(m_layer_index));
-            config.set_key_value("layer_z",   new ConfigOptionFloat(m_writer.get_position().z() - m_config.z_offset.value));
+            config.set_key_value("layer_z",   new ConfigOptionFloat(m_writer.get_position().z() - get_active_z_offset(m_config)));
             config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
             config.set_key_value("filament_extruder_id", new ConfigOptionInt(int(get_extruder_id(old_filament_id))));
             if (!m_filament_instances_code.empty()) {
@@ -7947,7 +7947,7 @@ std::string GCode::set_extruder(unsigned int new_filament_id, double print_z, bo
         // Process the filament_start_gcode for the new filament.
         DynamicConfig config;
         config.set_key_value("layer_num", new ConfigOptionInt(m_layer_index));
-        config.set_key_value("layer_z", new ConfigOptionFloat(this->writer().get_position().z() - m_config.z_offset.value));
+        config.set_key_value("layer_z", new ConfigOptionFloat(this->writer().get_position().z() - get_active_z_offset(m_config)));
         config.set_key_value("max_layer_z", new ConfigOptionFloat(m_max_layer_z));
         config.set_key_value("filament_extruder_id", new ConfigOptionInt(int(new_filament_id)));
         if (toolchange_temp_override > 0) {

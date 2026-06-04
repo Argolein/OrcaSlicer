@@ -23,6 +23,8 @@
 #include <wx/settings.h>
 #include <wx/filedlg.h>
 
+#include <array>
+
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include "libslic3r/libslic3r.h"
@@ -87,6 +89,14 @@ int mode_to_selection(ConfigOptionMode mode)
 static void validate_custom_gcode_cb(Tab* tab, const wxString& title, const t_config_option_key& opt_key, const boost::any& value);
 
 static const std::vector<std::string> plate_keys = { "curr_bed_type", "skirt_start_angle", "first_layer_print_sequence", "first_layer_sequence_choice", "other_layers_print_sequence", "other_layers_sequence_choice", "print_sequence", "spiral_mode"};
+static const std::array<const char*, 6> bed_type_z_offset_option_keys = {
+    "cool_plate_z_offset",
+    "eng_plate_z_offset",
+    "hot_plate_z_offset",
+    "textured_plate_z_offset",
+    "textured_cool_plate_z_offset",
+    "supertack_plate_z_offset"
+};
 
 void Tab::Highlighter::set_timer_owner(wxEvtHandler* owner, int timerid/* = wxID_ANY*/)
 {
@@ -4435,9 +4445,12 @@ void TabPrinter::build_fff()
         // optgroup->append_single_option_line("printable_area");
         optgroup->append_single_option_line("printable_height", "printer_basic_information_printable_space#printable-height");
         optgroup->append_single_option_line("support_multi_bed_types","printer_basic_information_printable_space#support-multi-bed-types");
+        optgroup->append_single_option_line("bed_type_specific_z_offset", "printer_basic_information_printable_space#z-offset");
+        for (const char* key : bed_type_z_offset_option_keys)
+            optgroup->append_single_option_line(key, "printer_basic_information_printable_space#z-offset");
+        optgroup->append_single_option_line("z_offset", "printer_basic_information_printable_space#z-offset");
         optgroup->append_single_option_line("best_object_pos", "printer_basic_information_printable_space#best-object-position");
         // todo: for multi_extruder test
-        optgroup->append_single_option_line("z_offset", "printer_basic_information_printable_space#z-offset");
         optgroup->append_single_option_line("preferred_orientation", "printer_basic_information_printable_space#preferred-orientation");
 
         optgroup = page->new_optgroup(L("Advanced"), L"param_advanced");
@@ -5415,8 +5428,15 @@ void TabPrinter::toggle_options()
             toggle_line(el, is_BBL_printer);
 
         // SoftFever: hide non-BBL settings
-        for (auto el : {"use_firmware_retraction", "use_relative_e_distances", "support_multi_bed_types", "pellet_modded_printer", "bed_mesh_max", "bed_mesh_min", "bed_mesh_probe_distance", "adaptive_bed_mesh_margin", "thumbnails"})
+        for (auto el : {"use_firmware_retraction", "use_relative_e_distances", "support_multi_bed_types", "bed_type_specific_z_offset", "pellet_modded_printer", "bed_mesh_max", "bed_mesh_min", "bed_mesh_probe_distance", "adaptive_bed_mesh_margin", "thumbnails"})
           toggle_line(el, !is_BBL_printer);
+
+        const bool support_multi_bed_types      = m_config->opt_bool("support_multi_bed_types");
+        const bool bed_type_specific_z_offset   = is_bed_type_specific_z_offset_enabled(*m_config);
+        toggle_line("bed_type_specific_z_offset", !is_BBL_printer && support_multi_bed_types);
+        for (const char* key : bed_type_z_offset_option_keys)
+            toggle_line(key, !is_BBL_printer && bed_type_specific_z_offset);
+        toggle_option("z_offset", !bed_type_specific_z_offset);
 
         auto gcf = m_config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor")->value;
         toggle_line("enable_power_loss_recovery", is_BBL_printer || gcf == gcfMarlinFirmware);

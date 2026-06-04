@@ -19,7 +19,7 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 
 ## Decisions
 - Local branch changes take priority in conflict resolution.
-- No commit will be created unless explicitly requested.
+- Do not commit `PLANS.md` automatically as part of the branch sync.
 - Keep the branch's unified `append_tcr` wipe-tower path instead of reintroducing upstream's deleted `append_tcr2` implementation.
 - Combine the branch's preheat temperature override handling with upstream's post-process layer tracking for first-layer temperature selection.
 - Skip empty cherry-picks when the target branch already contains an equivalent change.
@@ -34,32 +34,28 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - The G-code importer must treat standalone `;VT` markers as logical filament switches for preview coloring, but without charging physical toolchange time or incrementing physical toolchange counts.
 - `use_physical_extruder_ids_only` must be listed in `Preset::printer_options()`, otherwise the value may exist in the user JSON on disk but still be dropped when printer presets are loaded back into memory.
 - The Prepare 3D canvas must use the same effective-tool-count logic as slicing/export; otherwise it can show a fake wipe tower for multi-color single-physical-extruder Orca-managed mapping even when the sliced preview and G-code are already correct.
+- During the next `upstream/main` sync, keep the branch's strict-physical filament statistics path and thread upstream's `tool_ordering()` fallback through it, so non-wipe-tower prints still report tool changes correctly.
+- During the same sync, keep the branch's wipe-tower rib-wall and filament selector toggles in `ConfigManipulation.cpp`; the newer upstream wipe-tower option visibility changes are additive, not replacements.
 
 ## Handoff
 - Agent: Codex
-- Date: 2026-06-03
+- Date: 2026-06-04
 - Completed this session:
-  - Fixed the 1-extruder Orca-managed filament mapping path in `src/slic3r/GUI/PartPlate.cpp` and `src/slic3r/GUI/Plater.cpp` by removing the `> 1 extruder` activation requirement.
-  - Updated `src/slic3r/GUI/Tab.cpp` so toggling `Enable Orca-managed extruder mapping` refreshes the filament badges immediately.
-  - Updated `src/slic3r/GUI/GCodeViewer.cpp` so preview filament/tool lists use non-zero print statistics instead of raw `used_extruders_ids`.
-  - Updated `src/libslic3r/Preset.cpp` to use `deep_diff(...)` when saving inherited presets, so `use_physical_extruder_ids_only` persists even if the parent machine profile does not define the key yet, and guarded save paths where the parent preset lacks a vector option entirely.
-  - Added `use_physical_extruder_ids_only` to the printer preset option whitelist in `src/libslic3r/Preset.cpp`, so the saved value is loaded back into the in-memory printer preset after restarting the app.
-  - Updated `src/slic3r/GUI/GLCanvas3D.cpp` so the Prepare view suppresses the wipe tower proxy for Orca-managed mapping with one physical extruder unless a real tower is still required for timelapse or wrapping detection.
-  - Fixed `src/libslic3r/GCode/GCodeProcessor.hpp` and `src/libslic3r/GCode/GCodeProcessor.cpp` resets so print statistics and mode times are actually cleared between runs.
-  - Updated `src/libslic3r/GCode.cpp`, `src/libslic3r/GCodeWriter.cpp`, `src/libslic3r/GCode/GCodeProcessor.cpp`, and `src/libslic3r/Print.cpp` so 1-physical-extruder Orca-managed mapping uses physical tool IDs consistently, preserves logical `;VT` color markers, suppresses redundant same-tool `T0` commands, and no longer enables a wipe tower just because multiple logical colors exist.
-  - Verified the result with `cmake --build build/arm64 --config Release --target all -- -j1` and `git diff --check`.
+  - Fetched all remotes and confirmed `ultimate-merge.v2` is 100 commits behind and 72 commits ahead of `upstream/main`.
+  - Merged `upstream/main` into `ultimate-merge.v2` and preserved the existing branch history with a merge commit instead of a rebase.
+  - Resolved the `src/libslic3r/GCode.cpp` conflict by keeping the branch's strict-physical filament statistics path and wiring upstream's `tool_ordering()`-based toolchange fallback through both the strict and normal code paths.
+  - Resolved the `src/slic3r/GUI/ConfigManipulation.cpp` conflict by keeping the branch's wipe-tower rib-wall and filament-selector toggles while also retaining upstream's newer wipe-tower option visibility changes.
+  - Finalized the sync as merge commit `9923ade284` (`Merge remote-tracking branch 'upstream/main' into ultimate-merge.v2`).
+  - Verified there are no remaining conflict markers, `git diff --check` passes, and the branch is now `0` behind / `73` ahead of `upstream/main`.
 - Stopped at:
-  - The working tree contains the printer-preset persistence fix, the G-code statistics reset fix, the preview/export compaction fixes, and the new virtual-only same-physical-toolchange path; the changes are not committed yet.
+  - The branch sync is complete; only the local `PLANS.md` handoff update remains uncommitted in the working tree.
 - Next step:
-  - Restart Orca and verify end-to-end that the checkbox persists, the Prepare view no longer shows a fake tower for the managed 1-extruder case, and the sliced preview/G-code stay tower-free while preserving logical `;VT` color markers.
+  - If desired, push `ultimate-merge.v2` and/or run a build or app-level verification on top of merge commit `9923ade284`.
 - Open blockers:
   - none
 - Decisions made this session:
-  - 1-extruder managed mapping should normalize all filament badges to `1`, but it should not force the edit button into a mapping menu with no real mapping choices.
-  - The preview should ignore zero-usage fallback/default tool IDs introduced before the first virtual tool marker is resolved.
-  - A single-extruder managed-mapping print can legitimately show several logical colors, but those logical color changes must not force a wipe tower or a real physical toolchange when they all map to the same nozzle.
-  - Saving the checkbox was only half the fix; the printer preset loader also needed to recognize `use_physical_extruder_ids_only` as a first-class printer option.
-  - The Prepare-view wipe tower must be gated by effective physical tool count, not raw logical filament count, to stay consistent with the actual slice/export result.
+  - The sync should preserve the branch's strict-physical filament statistics behavior and only layer upstream's non-wipe-tower toolchange counting on top.
+  - The sync should preserve the branch's wipe-tower UI toggles for rib walls and per-role filament selectors; upstream's visibility updates should be merged around them, not replace them.
 
 ## Notes
 - If a smoke test / build step is needed, ask before starting for expensive C++ builds.

@@ -3819,6 +3819,8 @@ void TabFilament::add_filament_overrides_page()
                         const size_t target_index = opt_index < 0 ? 0 : static_cast<size_t>(opt_index);
                         if (ConfigOption *filament_option = m_config->option(opt_key, is_checked)) {
                             if (auto filament_vector = dynamic_cast<ConfigOptionVectorBase*>(filament_option)) {
+                                const boost::any zero_offset = double_to_string(0.0);
+                                boost::any propagated_value = zero_offset;
                                 if (is_checked) {
                                     ConfigOptionFloats default_offset{0.0};
                                     filament_vector->set_at(&default_offset, target_index, 0);
@@ -3827,14 +3829,18 @@ void TabFilament::add_filament_overrides_page()
                                     field->set_value(filament_config_value, false);
                                     field->update_na_value(_(L("N/A")));
                                     field->set_last_meaningful_value();
+                                    propagated_value = filament_config_value;
                                 } else {
-                                    field->update_na_value(double_to_string(0.0));
+                                    field->update_na_value(zero_offset);
                                     field->set_na_value();
 
                                     filament_vector->set_at_to_nil(target_index);
                                     if (filament_vector->is_nil())
                                         m_config->erase(opt_key);
                                 }
+
+                                update_dirty();
+                                on_value_change(opt_key, propagated_value);
                             }
                         }
                     }

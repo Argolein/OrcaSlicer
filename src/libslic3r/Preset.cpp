@@ -86,6 +86,28 @@ static ParsedName parse_preset_name(const std::string &raw_name)
     return out;
 }
 
+inline t_config_option_keys deep_diff(const ConfigBase &config_this, const ConfigBase &config_other, bool strict);
+
+static bool should_persist_missing_option(const ConfigOption *opt)
+{
+    return opt != nullptr && (!opt->nullable() || !opt->is_nil());
+}
+
+// Keep explicit child values when the parent preset predates a newly added option.
+static std::vector<std::string> diff_with_missing_parent_options(const DynamicPrintConfig &config, const DynamicPrintConfig &parent_config)
+{
+    std::vector<std::string> dirty_options = deep_diff(config, parent_config, true);
+    for (auto it = config.cbegin(); it != config.cend(); ++it) {
+        if (std::find(dirty_options.begin(), dirty_options.end(), it->first) != dirty_options.end())
+            continue;
+        if (parent_config.option(it->first) != nullptr)
+            continue;
+        if (should_persist_missing_option(it->second.get()))
+            dirty_options.emplace_back(it->first);
+    }
+    return dirty_options;
+}
+
 } // namespace
 
 std::string get_preset_canonical_name(const std::string &preset_bare_name, const PresetOrigin &origin)
@@ -658,7 +680,7 @@ void Preset::save(DynamicPrintConfig* parent_config)
     //BBS: only save difference if it has parent
     if (parent_config) {
         DynamicPrintConfig temp_config;
-        std::vector<std::string> dirty_options = deep_diff(config, *parent_config, true);
+        std::vector<std::string> dirty_options = diff_with_missing_parent_options(config, *parent_config);
 
         std::string extruder_id_name, extruder_variant_name;
         std::set<std::string> *key_set1 = nullptr, *key_set2 = nullptr;
@@ -1308,6 +1330,7 @@ static std::vector<std::string> s_Preset_filament_options {/*"filament_colour", 
     "ironing_fan_speed",
     // Filament ironing overrides
     "filament_ironing_flow", "filament_ironing_spacing", "filament_ironing_inset", "filament_ironing_speed",
+    "filament_z_offset",
     "filament_loading_speed", "filament_loading_speed_start",
     "filament_unloading_speed", "filament_unloading_speed_start", "filament_toolchange_delay", "filament_cooling_moves", "filament_stamping_loading_speed", "filament_stamping_distance",
     "filament_cooling_initial_speed", "filament_cooling_final_speed", "filament_ramming_parameters",
@@ -1761,7 +1784,7 @@ Preset* PresetCollection::get_preset_differed_for_save(Preset& preset)
         *new_preset = preset;
 
         DynamicPrintConfig temp_config;
-        std::vector<std::string> dirty_options = deep_diff(preset.config, parent_preset->config, true);
+        std::vector<std::string> dirty_options = diff_with_missing_parent_options(preset.config, parent_preset->config);
 
         std::string extruder_id_name, extruder_variant_name;
         std::set<std::string> *key_set1 = nullptr, *key_set2 = nullptr;
@@ -1822,7 +1845,7 @@ int PresetCollection::get_differed_values_to_update(Preset& preset, std::map<std
     }
     if (parent_preset) {
         DynamicPrintConfig temp_config;
-        std::vector<std::string> dirty_options = deep_diff(preset.config, parent_preset->config, true);
+        std::vector<std::string> dirty_options = diff_with_missing_parent_options(preset.config, parent_preset->config);
 
         for (auto option: dirty_options)
         {

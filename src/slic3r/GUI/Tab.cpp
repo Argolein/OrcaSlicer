@@ -81,6 +81,30 @@ int mode_to_selection(ConfigOptionMode mode)
            mode == comAdvanced ? 1 :
            0;
 }
+
+bool is_z_offset_related_option_id(const std::string& opt_id)
+{
+    const std::string opt_key = opt_id.substr(0, opt_id.find('#'));
+    static constexpr std::array<const char*, 6> bed_type_specific_option_keys = {
+        "cool_plate_z_offset",
+        "eng_plate_z_offset",
+        "hot_plate_z_offset",
+        "textured_plate_z_offset",
+        "textured_cool_plate_z_offset",
+        "supertack_plate_z_offset"
+    };
+
+    if (opt_key == "z_offset" || opt_key == "filament_z_offset" || opt_key == "bed_type_specific_z_offset")
+        return true;
+
+    return std::find(bed_type_specific_option_keys.begin(), bed_type_specific_option_keys.end(), opt_key) != bed_type_specific_option_keys.end();
+}
+
+void refresh_print_tab_for_z_offset_change()
+{
+    if (Tab* print_tab = wxGetApp().get_tab(Preset::TYPE_PRINT); print_tab != nullptr)
+        print_tab->update();
+}
 }
 
 #define DISABLE_UNDO_SYS
@@ -1056,6 +1080,8 @@ void TabFilament::init_options_list()
         else
             m_options_list.emplace(opt_key + "#0", m_opt_status_value);
     }
+
+    m_options_list.emplace("filament_z_offset#0", m_opt_status_value);
 }
 
 void Tab::get_sys_and_mod_flags(const std::string& opt_key, bool& sys_page, bool& modified_page)
@@ -1519,6 +1545,9 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
     if (wxGetApp().plater() == nullptr) {
         return;
     }
+
+    if (is_z_offset_related_option_id(opt_key))
+        refresh_print_tab_for_z_offset_change();
 
     if (opt_key == "gcode_flavor" && m_type == Preset::TYPE_PRINTER) {
         if (auto printer_tab = dynamic_cast<TabPrinter*>(this))
@@ -3774,12 +3803,60 @@ void TabFilament::add_filament_overrides_page()
         ironing_optgroup->append_line(line);
     };
 
-    for (const std::string opt_key : {  "filament_ironing_flow",
-                                        "filament_ironing_spacing",
-                                        "filament_ironing_inset",
-                                        "filament_ironing_speed"
-                                     })
+    for (const std::string opt_key : { "filament_ironing_flow",
+                                       "filament_ironing_spacing",
+                                       "filament_ironing_inset",
+                                       "filament_ironing_speed" })
         append_ironing_option(opt_key, extruder_idx);
+
+    ConfigOptionsGroupShp printable_space_optgroup = page->new_optgroup(L("Printable space"), L"param_printable_space");
+    auto append_printable_space_option = [this, printable_space_optgroup](const std::string& opt_key, int opt_index)
+    {
+        Line line {"",""};
+        line = printable_space_optgroup->create_single_option_line(printable_space_optgroup->get_option(opt_key, opt_index));
+
+        line.near_label_widget = [this, optgroup_wk = ConfigOptionsGroupWkp(printable_space_optgroup), opt_key, opt_index](wxWindow* parent) {
+            auto check_box = new ::CheckBox(parent);
+            check_box->Bind(wxEVT_TOGGLEBUTTON, [this, optgroup_wk, opt_key, opt_index](wxCommandEvent& evt) {
+                const bool is_checked = evt.IsChecked();
+                if (auto optgroup_sh = optgroup_wk.lock(); optgroup_sh) {
+                    if (Field *field = optgroup_sh->get_fieldc(opt_key, opt_index); field != nullptr) {
+                        field->toggle(is_checked);
+
+                        const size_t target_index = opt_index < 0 ? 0 : static_cast<size_t>(opt_index);
+                        if (ConfigOption *filament_option = m_config->option(opt_key, is_checked)) {
+                            if (auto filament_vector = dynamic_cast<ConfigOptionVectorBase*>(filament_option)) {
+                                if (is_checked) {
+                                    ConfigOptionFloats default_offset{0.0};
+                                    filament_vector->set_at(&default_offset, target_index, 0);
+
+                                    const boost::any filament_config_value = optgroup_sh->get_config_value(*m_config, opt_key, opt_index);
+                                    field->set_value(filament_config_value, false);
+                                    field->update_na_value(_(L("N/A")));
+                                    field->set_last_meaningful_value();
+                                } else {
+                                    field->update_na_value(double_to_string(0.0));
+                                    field->set_na_value();
+
+                                    filament_vector->set_at_to_nil(target_index);
+                                    if (filament_vector->is_nil())
+                                        m_config->erase(opt_key);
+                                }
+                            }
+                        }
+                    }
+                }
+                evt.Skip();
+            }, check_box->GetId());
+
+            m_overrides_options[opt_key] = check_box;
+            return check_box;
+        };
+
+        printable_space_optgroup->append_line(line);
+    };
+
+    append_printable_space_option("filament_z_offset", extruder_idx);
 }
 
 void TabFilament::update_filament_overrides_page(const DynamicPrintConfig* printers_config)
@@ -3868,14 +3945,10 @@ void TabFilament::update_filament_overrides_page(const DynamicPrintConfig* print
     {
         ConfigOptionsGroupShp ironing_optgroup = *og_ironing_it;
         
-        std::vector<std::string> ironing_opt_keys = {
-            "filament_ironing_flow",
-            "filament_ironing_spacing",
-            "filament_ironing_inset",
-            "filament_ironing_speed"
-        };
-
-        for (const std::string& opt_key : ironing_opt_keys)
+        for (const std::string& opt_key : { "filament_ironing_flow",
+                                            "filament_ironing_spacing",
+                                            "filament_ironing_inset",
+                                            "filament_ironing_speed" })
         {
             if (m_overrides_options.find(opt_key) == m_overrides_options.end())
                 continue;
@@ -3897,6 +3970,30 @@ void TabFilament::update_filament_overrides_page(const DynamicPrintConfig* print
             }
 
             field->toggle(is_checked);
+        }
+    }
+
+    const auto og_printable_space_it = std::find_if(page->m_optgroups.begin(), page->m_optgroups.end(), [](const ConfigOptionsGroupShp og) { return og->title == "Printable space"; });
+    if (og_printable_space_it != page->m_optgroups.end())
+    {
+        ConfigOptionsGroupShp printable_space_optgroup = *og_printable_space_it;
+        const std::string opt_key = "filament_z_offset";
+
+        if (m_overrides_options.find(opt_key) != m_overrides_options.end()) {
+            auto *filament_z_offset = dynamic_cast<ConfigOptionVectorBase*>(m_config->option(opt_key));
+            bool is_checked = filament_z_offset != nullptr && !filament_z_offset->is_nil(extruder_idx);
+            m_overrides_options[opt_key]->Enable(true);
+            m_overrides_options[opt_key]->SetValue(is_checked);
+
+            Field* field = printable_space_optgroup->get_fieldc(opt_key, 0);
+            if (field != nullptr) {
+                if (!is_checked) {
+                    field->update_na_value(double_to_string(0.0));
+                    field->set_value(double_to_string(0.0), false);
+                }
+
+                field->toggle(is_checked);
+            }
         }
     }
 }

@@ -546,19 +546,27 @@ static double get_active_z_offset(const ConfigT& config)
 {
     const ConfigOptionFloat* global_z_offset = config.template option<ConfigOptionFloat>("z_offset");
     const double             fallback        = global_z_offset != nullptr ? global_z_offset->value : 0.0;
-    if (!is_bed_type_specific_z_offset_enabled(config))
-        return fallback;
+    double                   machine_z_offset = fallback;
 
-    const ConfigOptionEnumGeneric* bed_type = config.template option<ConfigOptionEnumGeneric>("curr_bed_type");
-    if (bed_type == nullptr)
-        return fallback;
+    if (is_bed_type_specific_z_offset_enabled(config)) {
+        const ConfigOptionEnumGeneric* bed_type = config.template option<ConfigOptionEnumGeneric>("curr_bed_type");
+        if (bed_type != nullptr) {
+            const std::string bed_type_z_offset_key = get_bed_type_z_offset_key(static_cast<BedType>(bed_type->value));
+            if (!bed_type_z_offset_key.empty()) {
+                const ConfigOptionFloat* bed_type_z_offset = config.template option<ConfigOptionFloat>(bed_type_z_offset_key);
+                if (bed_type_z_offset != nullptr)
+                    machine_z_offset = bed_type_z_offset->value;
+            }
+        }
+    }
 
-    const std::string bed_type_z_offset_key = get_bed_type_z_offset_key(static_cast<BedType>(bed_type->value));
-    if (bed_type_z_offset_key.empty())
-        return fallback;
+    double filament_z_offset = 0.0;
+    const ConfigOptionFloatsNullable* filament_override = config.template option<ConfigOptionFloatsNullable>("filament_z_offset");
+    // Filament-side Z offset is treated as a print-wide first-layer adjustment, so the first filament is authoritative.
+    if (filament_override != nullptr && !filament_override->values.empty() && !filament_override->is_nil(0))
+        filament_z_offset = filament_override->get_at(0);
 
-    const ConfigOptionFloat* bed_type_z_offset = config.template option<ConfigOptionFloat>(bed_type_z_offset_key);
-    return bed_type_z_offset != nullptr ? bed_type_z_offset->value : fallback;
+    return machine_z_offset + filament_z_offset;
 }
 
 extern const std::vector<std::string> filament_extruder_override_keys;
@@ -1206,6 +1214,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloatsNullable, filament_ironing_spacing))
     ((ConfigOptionFloatsNullable, filament_ironing_inset))
     ((ConfigOptionFloatsNullable, filament_ironing_speed))
+    ((ConfigOptionFloatsNullable, filament_z_offset))
     // Detect bridging perimeters
     ((ConfigOptionBool, detect_overhang_wall))
     ((ConfigOptionInt, wall_filament))

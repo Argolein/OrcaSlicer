@@ -52,6 +52,9 @@ using boost::property_tree::ptree;
 
 namespace Slic3r {
 
+// Forward declaration; full definition lives later in this file at namespace Slic3r scope.
+inline t_config_option_keys deep_diff(const ConfigBase &config_this, const ConfigBase &config_other, bool strict);
+
 namespace {
 
 struct ParsedName {
@@ -85,8 +88,6 @@ static ParsedName parse_preset_name(const std::string &raw_name)
 
     return out;
 }
-
-inline t_config_option_keys deep_diff(const ConfigBase &config_this, const ConfigBase &config_other, bool strict);
 
 static bool should_persist_missing_option(const ConfigOption *opt)
 {
@@ -653,8 +654,6 @@ void Preset::remove_files(bool cloud_already_deleted)
 }
 
 //BBS: add logic for only difference save
-inline t_config_option_keys deep_diff(const ConfigBase &config_this, const ConfigBase &config_other, bool strict);
-
 void Preset::save(DynamicPrintConfig* parent_config)
 {
     //BBS: add project embedded preset logic

@@ -6,6 +6,7 @@
 #include "QidiPrinterAgent.hpp"
 #include "SnapmakerPrinterAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
+#include "PrusaPrinterAgent.hpp"
 #include <boost/log/trivial.hpp>
 #include <map>
 #include <mutex>
@@ -134,6 +135,7 @@ void NetworkAgentFactory::register_all_agents()
     register_agent<QidiPrinterAgent>();
     register_agent<SnapmakerPrinterAgent>();
     register_agent<MoonrakerPrinterAgent>();
+    register_agent<PrusaPrinterAgent>();
 
     // BBLPrinterAgent takes no constructor args, so register manually
     {

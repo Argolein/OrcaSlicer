@@ -3214,6 +3214,90 @@ unsigned int PresetBundle::sync_ams_list(std::vector<std::pair<DynamicPrintConfi
             return f.is_compatible && filaments.get_preset_base(f) == &f && f.filament_id == filament_id; });
         if (iter == filaments.end()) {
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": filament_id %1% not found or system or compatible") % filament_id;
+            // Orca: for non-Bambu printers, resolve by filament type BEFORE the generic
+            // "Generic <type>" tiers below, so the user's own preset wins over a generic
+            // system preset. Vendors like Prusa also name presets "Prusa Generic PLA @CORE
+            // One ..." (not "Generic PLA"), which the name-based tiers cannot match. A same-
+            // type user preset is accepted only when its name references the current printer
+            // model (e.g. "CoreOne_PLA_0.4" for "Prusa CORE One"); otherwise a preset made for
+            // a different printer ("U1_PLA_...") would match too, since user presets with an
+            // empty compatible_printers are compatible with every printer. Gated to non-BBL so
+            // Bambu AMS sync behaviour is unchanged.
+            const std::string bare_type = ams.opt_string("filament_type", 0u);
+            if (!is_bbl_vendor() && !bare_type.empty()) {
+                auto type_matches = [&bare_type](const Preset &f) {
+                    return boost::iequals(f.config.opt_string("filament_type", 0u), bare_type);
+                };
+                auto normalize = [](const std::string &s) {
+                    std::string out;
+                    for (char c : s)
+                        if (std::isalnum(static_cast<unsigned char>(c)))
+                            out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+                    return out;
+                };
+                // Word tokens of the current printer model, e.g. "Prusa CORE One" -> {prusa,core,one}.
+                std::vector<std::string> model_tokens;
+                {
+                    const std::string pm = printers.get_edited_preset().config.opt_string("printer_model");
+                    std::string       cur;
+                    auto              flush = [&]() { if (cur.size() >= 2) model_tokens.push_back(cur); cur.clear(); };
+                    for (char c : pm) {
+                        if (std::isalnum(static_cast<unsigned char>(c)))
+                            cur.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+                        else
+                            flush();
+                    }
+                    flush();
+                }
+                // Affinity: how many printer-model tokens appear in the (normalized) preset name.
+                auto printer_affinity = [&](const Preset &f) {
+                    const std::string n = normalize(f.name);
+                    int               score = 0;
+                    for (const auto &t : model_tokens)
+                        if (n.find(t) != std::string::npos)
+                            ++score;
+                    return score;
+                };
+                // Pick the user preset for this printer+type with the highest affinity; among
+                // equal affinity prefer the "plain" preset (shortest name, ties alphabetical),
+                // so "CoreOne_PLA_0.4" beats "CoreOne_PLA_Silk_0.4".
+                auto pick_user = [&]() {
+                    auto best     = filaments.end();
+                    int  best_aff = 0;
+                    for (auto it = filaments.begin(); it != filaments.end(); ++it) {
+                        if (!it->is_compatible || it->is_system || !type_matches(*it))
+                            continue;
+                        const int aff = printer_affinity(*it);
+                        if (aff <= 0)
+                            continue; // ignore user presets that don't name the current printer
+                        const bool better = best == filaments.end() || aff > best_aff
+                            || (aff == best_aff && (it->name.size() < best->name.size()
+                                || (it->name.size() == best->name.size() && it->name < best->name)));
+                        if (better) {
+                            best     = it;
+                            best_aff = aff;
+                        }
+                    }
+                    return best;
+                };
+                // Tie-break: keep the current selection if it is already this type and for this printer.
+                const size_t ext_idx = ams_filament_presets.size();
+                if (ext_idx < this->filament_presets.size()) {
+                    const std::string &cur_name = this->filament_presets[ext_idx];
+                    iter = std::find_if(filaments.begin(), filaments.end(), [&](auto &f) {
+                        return f.name == cur_name && f.is_compatible && type_matches(f) && printer_affinity(f) > 0; });
+                }
+                if (iter == filaments.end())
+                    iter = pick_user();
+                if (iter != filaments.end()) {
+                    // Matched a user/current preset for this printer+type — non-unknown selection.
+                    ams_filament_presets.push_back(iter->name);
+                    ams_filament_colors.push_back(filament_color);
+                    ams_filament_color_types.push_back(filament_color_type);
+                    ams_multi_color_filment.push_back(filament_multi_color);
+                    continue;
+                }
+            }
             if (!filament_type.empty()) {
                 auto original_type = filament_type;
                 filament_type = "Generic " + filament_type;

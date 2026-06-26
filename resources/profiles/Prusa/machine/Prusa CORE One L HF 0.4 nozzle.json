@@ -4,6 +4,7 @@
 	"inherits": "fdm_machine_common",
 	"from": "system",
 	"instantiation": "true",
+	"printer_agent": "prusa",
 	"before_layer_change_gcode": [
 		";BEFORE_LAYER_CHANGE\nG92 E0.0\n;[layer_z]\n{if layer_z > 150}\nM201 X{interpolate_table(layer_z, (0,6000), (150,6000), (200,4000), (331,2000))} Y{interpolate_table(layer_z, (0,6000), (150,6000), (200,4000), (331,2000))}\n{endif}\n"
 	],

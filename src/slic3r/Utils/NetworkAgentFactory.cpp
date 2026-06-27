@@ -7,6 +7,7 @@
 #include "SnapmakerPrinterAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
 #include "PrusaPrinterAgent.hpp"
+#include "CrealityPrintAgent.hpp"
 #include <boost/log/trivial.hpp>
 #include <map>
 #include <mutex>
@@ -134,6 +135,9 @@ void NetworkAgentFactory::register_all_agents()
     register_agent<OrcaPrinterAgent>();
     register_agent<QidiPrinterAgent>();
     register_agent<SnapmakerPrinterAgent>();
+    register_agent<CrealityPrintAgent>();  // Must come BEFORE MoonrakerPrinterAgent —
+                                            // CrealityPrintAgent extends Moonraker behaviour
+                                            // for K-series boards with CFS support.
     register_agent<MoonrakerPrinterAgent>();
     register_agent<PrusaPrinterAgent>();
 

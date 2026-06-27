@@ -3,6 +3,7 @@
 	"name": "Prusa CORE One HF 0.4 nozzle",
 	"inherits": "fdm_machine_common",
 	"from": "system",
+	"setting_id": "AUk8BqRmHxaFL1UZ",
 	"instantiation": "true",
 	"printer_agent": "prusa",
 	"before_layer_change_gcode": [

@@ -36,26 +36,31 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - The Prepare 3D canvas must use the same effective-tool-count logic as slicing/export; otherwise it can show a fake wipe tower for multi-color single-physical-extruder Orca-managed mapping even when the sliced preview and G-code are already correct.
 - During the next `upstream/main` sync, keep the branch's strict-physical filament statistics path and thread upstream's `tool_ordering()` fallback through it, so non-wipe-tower prints still report tool changes correctly.
 - During the same sync, keep the branch's wipe-tower rib-wall and filament selector toggles in `ConfigManipulation.cpp`; the newer upstream wipe-tower option visibility changes are additive, not replacements.
+- 2026-07-07 sync: upstream's "multi-variant" refactor (`1c8c7820c8`) made speed/acceleration/jerk configs per-extruder vectors (`ConfigOptionFloatsNullable`); keeping the branch's scalar types is impossible (the merged `NOZZLE_CONFIG` macro calls `.get_at()`, which only exists on vector options). Adopt upstream's vector types and re-port branch features on top.
+- The branch's `rounded_filament_acceleration(double)` helper is type-agnostic; preserve the filament max-accel clamp by feeding it `NOZZLE_CONFIG(...)` per-extruder values instead of upstream's inline `floor(x+0.5)`.
+- Keep `travel_short_distance_acceleration` a scalar (`ConfigOptionFloat`) option — it stays global while its siblings are per-extruder. Consequence: its "exceeds machine max" advisory warning in `Print.cpp` is dropped (upstream's `get_abs_value_at` throws on scalar options); the short-travel slicing behavior itself is unchanged.
+- The branch's PrintConfig.cpp block (lattice/lightning/infill_anchor/accel defs) was a byte-identical relocated duplicate of options upstream already defines; drop it and keep upstream's correctly-typed copies, preserving only the branch-unique `travel_short_distance_acceleration`.
+- CoolingBuffer `set_current_extruder` became 2-arg (extruder_id, nozzle_id) upstream; the branch's extra single-arg `set_current_extruder(get_toolchange_id(...))` calls in GCode.cpp are superseded and removed.
 
 ## Handoff
-- Agent: Codex
-- Date: 2026-06-04
+- Agent: Claude Code
+- Date: 2026-07-07
 - Completed this session:
-  - Fetched all remotes and confirmed `ultimate-merge.v2` is 100 commits behind and 72 commits ahead of `upstream/main`.
-  - Merged `upstream/main` into `ultimate-merge.v2` and preserved the existing branch history with a merge commit instead of a rebase.
-  - Resolved the `src/libslic3r/GCode.cpp` conflict by keeping the branch's strict-physical filament statistics path and wiring upstream's `tool_ordering()`-based toolchange fallback through both the strict and normal code paths.
-  - Resolved the `src/slic3r/GUI/ConfigManipulation.cpp` conflict by keeping the branch's wipe-tower rib-wall and filament-selector toggles while also retaining upstream's newer wipe-tower option visibility changes.
-  - Finalized the sync as merge commit `9923ade284` (`Merge remote-tracking branch 'upstream/main' into ultimate-merge.v2`).
-  - Verified there are no remaining conflict markers, `git diff --check` passes, and the branch is now `0` behind / `73` ahead of `upstream/main`.
+  - Synced `ultimate-merge.v2` with `origin/main` (== `upstream/main`, b2adfb5c13): was 111 behind / 81 ahead.
+  - Merged `origin/main` with a merge commit (no rebase); resolved 18 conflict hunks across 9 files: GCode.cpp, GCode/CoolingBuffer.cpp, GCode/GCodeProcessor.cpp, Preset.cpp, Print.cpp, Print.hpp, PrintConfig.cpp, PrintConfig.hpp, slic3r/GUI/Tab.cpp.
+  - Core decision: adopted upstream's per-extruder multi-variant speed/accel/jerk config model and re-ported branch features on top (filament max-accel clamp, short-travel accel, curve smoothing, consistent-surface cooling + initial_layer_fan_speed, multi-material VT mapping, QIDI flag). See new entries in ## Decisions.
+  - Verified: no conflict markers remain; full arm64 macOS Release build succeeds in ~8 min with 0 errors (`build/arm64/.../OrcaSlicer.app`).
+  - Finalized as merge commit `193f12ba53` (`Merge origin/main into ultimate-merge.v2`). Branch now 0 behind / 82 ahead of origin/main. Nothing pushed.
+  - Post-merge crash fix `58cbe3ebb7`: slicing crashed (EXC_BAD_ACCESS in GCodeWriter::_travel_to_z via GCode::preamble) on non-BBL printers. Upstream's per-extruder _travel_to_z derefs filament()->id(), but filament() is null until the first toolchange and init_extruder() runs only for BBL printers before preamble. The branch's get_active_z_offset() makes preamble do a real (non-zero) silent Z move — unlike upstream's z_offset.value==0 which skips it — so non-BBL printers deref a null filament(). Fixed by null-guarding filament() in _travel_to_z()/_spiral_travel_to_z() (fall back to filament 0; preamble output is discarded so no G-code change). Rebuilt clean (0 errors).
 - Stopped at:
-  - The branch sync is complete; only the local `PLANS.md` handoff update remains uncommitted in the working tree.
+  - Sync complete and committed. Only this `PLANS.md` handoff update remains uncommitted in the working tree.
 - Next step:
-  - If desired, push `ultimate-merge.v2` and/or run a build or app-level verification on top of merge commit `9923ade284`.
+  - Optional: run-time/app verification of acceleration behavior (per-extruder), short-travel accel, and cooling; then push `ultimate-merge.v2` if desired.
+  - Note the one intentional behavioral reduction: the `travel_short_distance_acceleration` "exceeds machine max" advisory warning in Print.cpp is dropped (option kept scalar). Slicing behavior unchanged.
 - Open blockers:
   - none
 - Decisions made this session:
-  - The sync should preserve the branch's strict-physical filament statistics behavior and only layer upstream's non-wipe-tower toolchange counting on top.
-  - The sync should preserve the branch's wipe-tower UI toggles for rib walls and per-role filament selectors; upstream's visibility updates should be merged around them, not replace them.
+  - See the 2026-07-07 entries added to ## Decisions above.
 
 ## Notes
 - If a smoke test / build step is needed, ask before starting for expensive C++ builds.

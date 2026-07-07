@@ -937,10 +937,16 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
 {
     m_pos(2) = z;
 
-    double speed = this->config.travel_speed_z.get_at(get_extruder_index(this->config, filament()->id()));
+    // Orca: filament() is null until the first toolchange. This is exercised by the silent Z-offset
+    // move emitted from GCode::preamble() on non-BBL printers (init_extruder() runs only for BBL
+    // printers before the preamble). Fall back to the first filament so the per-extruder travel-speed
+    // lookup stays valid instead of dereferencing a null pointer.
+    const Extruder    *cur_filament = filament();
+    const unsigned int filament_id  = (cur_filament != nullptr) ? cur_filament->id() : 0;
+    double speed = this->config.travel_speed_z.get_at(get_extruder_index(this->config, filament_id));
     if (speed == 0.) {
-        speed = m_is_first_layer ? this->config.get_abs_value_at("initial_layer_travel_speed", get_extruder_index(this->config, filament()->id()))
-                                 : this->config.travel_speed.get_at(get_extruder_index(this->config, filament()->id()));
+        speed = m_is_first_layer ? this->config.get_abs_value_at("initial_layer_travel_speed", get_extruder_index(this->config, filament_id))
+                                 : this->config.travel_speed.get_at(get_extruder_index(this->config, filament_id));
     }
 
     GCodeG1Formatter w;
@@ -954,11 +960,14 @@ std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
 std::string GCodeWriter::_spiral_travel_to_z(double z, const Vec2d &ij_offset, const std::string &comment)
 {
     std::string output;
-    double speed = this->config.travel_speed_z.get_at(get_extruder_index(this->config, filament()->id()));
+    // Orca: see _travel_to_z — filament() can be null before the first toolchange; fall back to filament 0.
+    const Extruder    *cur_filament = filament();
+    const unsigned int filament_id  = (cur_filament != nullptr) ? cur_filament->id() : 0;
+    double speed = this->config.travel_speed_z.get_at(get_extruder_index(this->config, filament_id));
 
     if (speed == 0.) {
-        speed = m_is_first_layer ? this->config.get_abs_value_at("initial_layer_travel_speed", get_extruder_index(this->config, filament()->id()))
-                                 : this->config.travel_speed.get_at(get_extruder_index(this->config, filament()->id()));
+        speed = m_is_first_layer ? this->config.get_abs_value_at("initial_layer_travel_speed", get_extruder_index(this->config, filament_id))
+                                 : this->config.travel_speed.get_at(get_extruder_index(this->config, filament_id));
     }
 
     if (!this->config.enable_arc_fitting) { // Orca: if arc fitting is disabled, approximate the arc with small linear segments

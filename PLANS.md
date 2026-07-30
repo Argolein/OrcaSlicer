@@ -19,7 +19,9 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 
 ## Decisions
 - Local branch changes take priority in conflict resolution.
-- Do not commit `PLANS.md` automatically as part of the branch sync.
+- ~~Do not commit `PLANS.md` automatically as part of the branch sync.~~ **Superseded 2026-07-30:**
+  always commit `PLANS.md` on this branch, together with the work it describes, so the record
+  cannot drift from the diff.
 - Keep the branch's unified `append_tcr` wipe-tower path instead of reintroducing upstream's deleted `append_tcr2` implementation.
 - Combine the branch's preheat temperature override handling with upstream's post-process layer tracking for first-layer temperature selection.
 - Skip empty cherry-picks when the target branch already contains an equivalent change.
@@ -41,8 +43,31 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - Keep `travel_short_distance_acceleration` a scalar (`ConfigOptionFloat`) option — it stays global while its siblings are per-extruder. Consequence: its "exceeds machine max" advisory warning in `Print.cpp` is dropped (upstream's `get_abs_value_at` throws on scalar options); the short-travel slicing behavior itself is unchanged.
 - The branch's PrintConfig.cpp block (lattice/lightning/infill_anchor/accel defs) was a byte-identical relocated duplicate of options upstream already defines; drop it and keep upstream's correctly-typed copies, preserving only the branch-unique `travel_short_distance_acceleration`.
 - CoolingBuffer `set_current_extruder` became 2-arg (extruder_id, nozzle_id) upstream; the branch's extra single-arg `set_current_extruder(get_toolchange_id(...))` calls in GCode.cpp are superseded and removed.
+- 2026-07-30 sync: the branch's `_travel_to_z`/`_spiral_travel_to_z` null-guard was dropped — upstream's `m_cached_extruder_idx` (default 0, refreshed on toolchange) removes the `filament()` dereference entirely and its default matches the branch's old fallback exactly. The crash fix is preserved structurally, not by the guard.
+- 2026-07-30 sync: the branch's `wtwCone` removal from `WipeTowerWallType` stands; upstream's `wipe_tower_cone_angle` visibility line referencing `WipeTowerWallType::wtwCone` would not compile and was dropped. `prime_tower_width` stays editable under rib wall (branch behaviour) rather than upstream's `!have_rib_wall`.
+- 2026-07-30 sync: upstream's new pre-heating block builder parsed `;VT` with `str >> fid` and silently ignored the branch's `;VT T<fid>` spelling. Patched the parser to skip an optional `T` rather than changing the branch's marker format, which is load-bearing for saved G-code and the strict-physical-tool-id path.
+- 2026-07-30 sync: `_make_wipe_tower()` purge-volume loop — kept the branch's model verbatim (prime/purge split, `purge_in_prime_tower && SEMM` path with `filament_minimal_purge_on_wipe_tower` add-back, per-physical-nozzle tracking). Upstream's `NozzleStatusRecorder` carousel tracking, `prime_volume_mode` and per-filament `filament_prime_volume(_nc)` were dropped here. **Consequence:** H2C carousel printers keep the redundant-AMS-flush behaviour upstream fixed, and `prime_volume_mode` / `filament_prime_volume` / `filament_prime_volume_nc` exist as config options but do not affect wipe-tower planning on this branch.
+- 2026-07-30 sync: upstream's `WipeTower2` else-branch and `WipeTowerIntegration::append_tcr2()` (283 lines) were dropped again per the standing unified-pipeline decision; `append_tcr2` has no remaining callers.
 
 ## Handoff
+- Agent: Claude Code
+- Date: 2026-07-30
+- Completed this session:
+  - Synced `ultimate-merge.v2` with `upstream/main` (54dc5a2f1d): was 433 behind / 86 ahead. Merge base 6fda82476d.
+  - Resolved 51 conflict hunks across 18 files: GCode.cpp (18), Print.cpp (6), Plater.cpp (4), GCodeWriter.cpp (4), OptionsGroup.cpp (3), Tab.cpp (2), WipeTower.{cpp,hpp} (2+2), GCodeProcessor.cpp (2), and one each in GCode.hpp, GCodeProcessor.hpp, PrintConfig.cpp, TreeSupport.cpp, ConfigManipulation.cpp, Field.cpp, PartPlate.cpp, TextInput.hpp, NetworkAgentFactory.cpp.
+  - Branch features preserved: filament max-accel clamp, short-travel acceleration, Orca-managed mapping / mapped tool ids + `;VT`, unified wipe-tower pipeline (no `append_tcr2`), rib-wall toggles, bed-type Z offsets, tower-interface preheat (support-filament-only), tree-support bottom gap, Prusa/Snapmaker agents, QIDI flag, OptionsGroup null-safety.
+  - Upstream features adopted on top: per-variant config columns (`get_filament_config_index` / `get_nozzle_config_index`), 2-arg `toolchange(filament_id, nozzle_id)`, nozzle/hotend/variant placeholders, `m_cached_extruder_idx`, filament-volume maps in `full_config`, printer-agent plugin system, wipe-tower printable-height clamp + `has_filament_switcher`, per-variant ramming/pre-cooling filament options, `top_base_interface_layers`.
+  - One decision deferred to the user: the `_make_wipe_tower()` purge-volume model — chose "keep branch, drop upstream's" (see Decisions).
+  - Deps rebuilt (upstream added `python3`/`pybind11`/`wxInspector`; 15m26s) and full arm64 macOS Release build clean — 743/743 targets, 0 errors, 11m24s.
+  - Committed as `2f1be0201b` (`Merge upstream/main into ultimate-merge.v2`); branch now 0 behind / 87 ahead of upstream. Nothing pushed.
+- Stopped at:
+  - Merge committed and building clean. Not pushed — MERGE_NOTES requires explicit OK.
+- Next step:
+  - Runtime smoke test before pushing: slice a multi-material plate on a non-BBL printer (exercises the unified wipe-tower path + `_travel_to_z` preamble), and check a toolchange's `;VT`/T output under Orca-managed mapping. This sync also pulls in upstream's Python plugin system (pybind11 + bundled Python 3), a larger surface than a typical sync.
+- Open blockers:
+  - none
+
+## Handoff (previous)
 - Agent: Claude Code
 - Date: 2026-07-07
 - Completed this session:

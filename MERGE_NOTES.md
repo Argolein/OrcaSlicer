@@ -125,13 +125,30 @@ straight after `;VT` and silently no-ops on the branch's spelling — it was pat
 optional `T`. Re-check that parser on every sync rather than changing the branch's marker format
 (the format is load-bearing for saved G-code and the strict-physical-tool-id path).
 
+**Wipe tower after upstream's BambuStudio re-syncs (2026-09-27, upstream `7a378d2fc4`).** Upstream
+periodically re-syncs `WipeTower` wholesale from BambuStudio. Resolve by taking upstream's file as
+the base and re-applying the branch deltas (`git diff <merge-base> HEAD -- src/libslic3r/GCode/WipeTower.cpp`),
+not by picking hunks. Then check that these branch pieces survived, because a re-sync silently drops them:
+- `WipeTower::set_nozzle_change_in_tower(bool)` (no nc_depth for non-BBL; Print sets it).
+- Orca tower-interface features: `tower_interface_purge_length` / `filament_tower_interface_purge_volume`
+  (extra purge, incl. `is_support`), `m_enable_tower_interface_cooldown_during_tower`. Upstream keeps these
+  only in `WipeTower2`, which the unified pipeline never runs — grep `WipeTower.cpp` for them after every sync.
+- No `wtwCone` anywhere (`grep -rn wtwCone src/`); upstream keeps adding cone code to `WipeTower2.cpp` /
+  `WipeTowerEstimate.cpp`.
+- No `append_tcr2` / `WipeTower2` path in GCode.cpp or Print.cpp.
+
+**`-Werror` on Clang (upstream CMakeLists, 2026-09).** Branch code must build warning-free; fix the
+warning, do not add it to the disabled list.
+
 ## Post-merge verification (cheap, do before building)
 
 ```bash
 # no scalar .value left on now-vector options:
-grep -rnE '(default_acceleration|outer_wall_acceleration|inner_wall_acceleration|top_surface_acceleration|initial_layer_acceleration|bridge_acceleration|travel_acceleration|sparse_infill_acceleration|internal_solid_infill_acceleration|bridge_speed|internal_bridge_speed)\.value' src/libslic3r src/slic3r | grep -v travel_short_distance_acceleration
-grep -rnE '(default_jerk|outer_wall_jerk|inner_wall_jerk|top_surface_jerk|initial_layer_jerk|travel_jerk|infill_jerk|default_junction_deviation)\.value' src/libslic3r src/slic3r
+grep -rnE '(default_acceleration|outer_wall_acceleration|inner_wall_acceleration|top_surface_acceleration|initial_layer_acceleration|bridge_acceleration|travel_acceleration|sparse_infill_acceleration|internal_solid_infill_acceleration|bridge_speed|internal_bridge_speed)\.value\b' src/libslic3r src/slic3r | grep -v travel_short_distance_acceleration
+grep -rnE '(default_jerk|outer_wall_jerk|inner_wall_jerk|top_surface_jerk|initial_layer_jerk|travel_jerk|infill_jerk|default_junction_deviation)\.value\b' src/libslic3r src/slic3r
 # both should return nothing.
+grep -rn wtwCone src/ | grep -v "// wtwCone"             # must be empty (the ConfigManipulation comment is fine)
+grep -c 'tower_interface_purge_length\|m_enable_tower_interface_cooldown_during_tower' src/libslic3r/GCode/WipeTower.cpp   # must be > 0
 ```
 
 Then build (`./build_release_macos.sh -x -s -a arm64`) and, ideally, slice one model on a

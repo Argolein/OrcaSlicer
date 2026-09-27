@@ -48,8 +48,40 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - 2026-07-30 sync: upstream's new pre-heating block builder parsed `;VT` with `str >> fid` and silently ignored the branch's `;VT T<fid>` spelling. Patched the parser to skip an optional `T` rather than changing the branch's marker format, which is load-bearing for saved G-code and the strict-physical-tool-id path.
 - 2026-07-30 sync: `_make_wipe_tower()` purge-volume loop — kept the branch's model verbatim (prime/purge split, `purge_in_prime_tower && SEMM` path with `filament_minimal_purge_on_wipe_tower` add-back, per-physical-nozzle tracking). Upstream's `NozzleStatusRecorder` carousel tracking, `prime_volume_mode` and per-filament `filament_prime_volume(_nc)` were dropped here. **Consequence:** H2C carousel printers keep the redundant-AMS-flush behaviour upstream fixed, and `prime_volume_mode` / `filament_prime_volume` / `filament_prime_volume_nc` exist as config options but do not affect wipe-tower planning on this branch.
 - 2026-07-30 sync: upstream's `WipeTower2` else-branch and `WipeTowerIntegration::append_tcr2()` (283 lines) were dropped again per the standing unified-pipeline decision; `append_tcr2` has no remaining callers.
+- 2026-09-27 sync: upstream `7a378d2fc4` re-synced `WipeTower` from BambuStudio (~2100 lines). WipeTower.cpp/.hpp were rebuilt from upstream's version and the branch deltas re-applied on top (wall filament override, category sync, `get_z_and_depth_pairs`, no stability floor in `plan_tower_new`, TPU zero-length guard, rib contour fix). Branch ports of BambuStudio features that upstream now ships natively (layer types, infill gaps, per-layer skip points) were replaced by upstream's versions.
+- 2026-09-27 sync: upstream removed `WipeTower::set_filament_map`, which carried the branch's "no nc_depth for non-BBL printers" rule (e8ead44573). Re-ported as `WipeTower::set_nozzle_change_in_tower(bool)`, set by Print to `is_BBL_printer() || is_QIDI_printer()`; when off, the nozzle/extruder-change checks answer "same nozzle".
+- 2026-09-27 sync: `_make_wipe_tower()` keeps the branch's structure and purge model and adopts upstream's WipeTower API (nozzle groups, accelerations, first-layer flow, per-slot purge tracking, 3-volume `plan_toolchange`, `generate_new`, skip mid-air final purge, exact footprint check). `append_tcr2`, `travel_to_tower_gap`, `transform_wt2_pt` dropped again; `tool_change` uses upstream's precomputed compacted Z with `get_active_z_offset` as its base.
+- 2026-09-27 sync: the "cone" wall type stays removed; upstream's new `wtwCone` uses in `WipeTower2.cpp` and `WipeTowerEstimate.cpp` were deleted (the estimate outline never carries a cone base).
+- 2026-09-27 sync: upstream's BambuStudio re-sync dropped three Orca tower-interface features from `WipeTower` (kept only in `WipeTower2`, which the unified pipeline never runs). Re-ported onto upstream's new code: the extra interface purge (`filament_tower_interface_purge_volume`, incl. the branch's support-filament extension; no depth reserved, as before) and the `enable_tower_interface_cooldown_during_tower` timing (layered on upstream's Contact-grid M109). The old 20 mm/s "layer after interface" slowdown was NOT re-ported: before the merge it lived in `finish_layer()`, which only measured extrusion length, so it never reached G-code — making it live would have changed output.
+- 2026-09-27 sync: behavior change accepted from upstream, open for Owner: the interface print temperature is now applied only in upstream's Contact-grid code, no longer at the toolchange into an interface layer (the old `tool_change_new` M109). The branch's GCode-side support-only preheat (`use_support_tower_interface_temp`) is unchanged.
+- 2026-09-27 sync: accepted upstream defaults in the wipe tower: a sparse layer 0 is skipped in `tool_change` (the branch always printed it); the fake-tower position includes the rib offset (matches `append_tcr`); the pre-slice footprint estimate still sizes non-BBL printers with Type2 rules and the stability floor (over-reserves slightly; forcing Type1 would break upstream's estimate tests).
+- 2026-09-27 sync: upstream's new `wait_for_temp_on_wipe_tower` (408db4b3b0) is WipeTower2-only; in the unified pipeline it did nothing, so its line is hidden in the printer tab (Tab.cpp), like the cone angle.
+- 2026-09-27 sync: fixed a pre-existing branch crash exposed by upstream's new tests: non-BBL printers with `single_extruder_multi_material_priming` on skipped the initial `set_extruder` while `WipeTower::prime` produces nothing, so `process_layer` dereferenced a null filament. GCode.cpp now counts priming only when the tower returned priming lines (`wipe_tower_priming`).
+- 2026-09-27 sync: upstream's re-sync dropped the branch's `m_is_multiple_nozzle` gate on `should_heating` in WipeTower, so every non-BBL toolchange got `M400` + `M104`. Restored as `s_IsBBLPrinter || m_is_multiple_nozzle` (BBL keeps upstream behavior).
+- 2026-09-27 sync: upstream now builds with `-Werror` on Clang. Branch code must compile warning-free (first hit: an unused `this` capture in SnapmakerPrinterAgent.cpp).
 
 ## Handoff
+- Agent: Claude Code
+- Date: 2026-09-27
+- Completed this session:
+  - Synced `ultimate-merge.v2` with `upstream/main` (6a07853933): was 1214 behind / 87 ahead. Merge base 54dc5a2f1d.
+  - Resolved 82 conflict blocks in 19 files: WipeTower.cpp (30), Print.cpp (10), WipeTower.hpp (6), GCode.cpp (4), GLCanvas3D.cpp (4), PartPlate.cpp (4), GCode.hpp (3), and 1-2 each in Preset.cpp, PrintConfig.cpp, ConfigManipulation.cpp, Plater.cpp/.hpp, GUI_Factories.cpp, GUI_App.cpp, GCodeViewer.cpp, Tabbook.hpp, TreeSupport.hpp, OrcaSlicer.cpp, CMakeLists.txt. Per-block notes were kept in the session scratch only.
+  - Unified wipe-tower pipeline kept on top of upstream's BambuStudio re-sync of `WipeTower`; see the 2026-09-27 entries in ## Decisions.
+  - Deps rebuilt (upstream added Assimp, SLVS, FFmpeg and patched wxWidgets/TBB/Python). Full arm64 macOS build clean, with upstream's new Clang `-Werror`.
+  - Tests (`-T`, first time on this branch): 1299 of 1309 pass. Two crashes (a pre-existing branch bug) and one regression were fixed.
+- Remaining test failures (10), tests left untouched:
+  - Expected, because upstream's tests pin WipeTower2 / cone behavior the branch removed: #786, #833 (cone), #1120, #1200 (WipeTower2 priming), #1177, #1211 (tower temperature wait), #1240 (`;HEIGHT` formatting), #1142 (rib width vs square footprint; likely, not confirmed).
+  - Branch feature: #406 (H2C Hybrid slots) fails because `normalize_filament_maps` (ff9a5dd81c) maps filament indexes >= physical extruder count to extruder 1.
+  - Unexplained: #1156 (custom G-code motion limits restored; acceleration clamped to 1500 by machine limits; code matches upstream). May already have failed before the merge.
+- Stopped at:
+  - Merge committed locally. Not pushed — MERGE_NOTES requires explicit OK.
+- Next step:
+  - Owner decides the open question on interface print temperature at toolchange (see Decisions).
+  - Runtime smoke test: slice a multi-material plate on a non-BBL printer and check tower output.
+- Open blockers:
+  - none
+
+## Handoff (previous)
 - Agent: Claude Code
 - Date: 2026-07-30
 - Completed this session:
@@ -66,26 +98,6 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
   - Runtime smoke test before pushing: slice a multi-material plate on a non-BBL printer (exercises the unified wipe-tower path + `_travel_to_z` preamble), and check a toolchange's `;VT`/T output under Orca-managed mapping. This sync also pulls in upstream's Python plugin system (pybind11 + bundled Python 3), a larger surface than a typical sync.
 - Open blockers:
   - none
-
-## Handoff (previous)
-- Agent: Claude Code
-- Date: 2026-07-07
-- Completed this session:
-  - Synced `ultimate-merge.v2` with `origin/main` (== `upstream/main`, b2adfb5c13): was 111 behind / 81 ahead.
-  - Merged `origin/main` with a merge commit (no rebase); resolved 18 conflict hunks across 9 files: GCode.cpp, GCode/CoolingBuffer.cpp, GCode/GCodeProcessor.cpp, Preset.cpp, Print.cpp, Print.hpp, PrintConfig.cpp, PrintConfig.hpp, slic3r/GUI/Tab.cpp.
-  - Core decision: adopted upstream's per-extruder multi-variant speed/accel/jerk config model and re-ported branch features on top (filament max-accel clamp, short-travel accel, curve smoothing, consistent-surface cooling + initial_layer_fan_speed, multi-material VT mapping, QIDI flag). See new entries in ## Decisions.
-  - Verified: no conflict markers remain; full arm64 macOS Release build succeeds in ~8 min with 0 errors (`build/arm64/.../OrcaSlicer.app`).
-  - Finalized as merge commit `193f12ba53` (`Merge origin/main into ultimate-merge.v2`). Branch now 0 behind / 82 ahead of origin/main. Nothing pushed.
-  - Post-merge crash fix `58cbe3ebb7`: slicing crashed (EXC_BAD_ACCESS in GCodeWriter::_travel_to_z via GCode::preamble) on non-BBL printers. Upstream's per-extruder _travel_to_z derefs filament()->id(), but filament() is null until the first toolchange and init_extruder() runs only for BBL printers before preamble. The branch's get_active_z_offset() makes preamble do a real (non-zero) silent Z move — unlike upstream's z_offset.value==0 which skips it — so non-BBL printers deref a null filament(). Fixed by null-guarding filament() in _travel_to_z()/_spiral_travel_to_z() (fall back to filament 0; preamble output is discarded so no G-code change). Rebuilt clean (0 errors).
-- Stopped at:
-  - Sync complete and committed. Only this `PLANS.md` handoff update remains uncommitted in the working tree.
-- Next step:
-  - Optional: run-time/app verification of acceleration behavior (per-extruder), short-travel accel, and cooling; then push `ultimate-merge.v2` if desired.
-  - Note the one intentional behavioral reduction: the `travel_short_distance_acceleration` "exceeds machine max" advisory warning in Print.cpp is dropped (option kept scalar). Slicing behavior unchanged.
-- Open blockers:
-  - none
-- Decisions made this session:
-  - See the 2026-07-07 entries added to ## Decisions above.
 
 ## Notes
 - If a smoke test / build step is needed, ask before starting for expensive C++ builds.

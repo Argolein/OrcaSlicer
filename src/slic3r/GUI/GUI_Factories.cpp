@@ -1696,7 +1696,8 @@ void MenuFactory::create_filament_action_menu(bool init, int active_filament_men
 
     // ORCA: remap a logical filament onto a physical extruder (Orca-managed filament mapping).
     const int physical_extruder_cnt = wxGetApp().preset_bundle->get_printer_extruder_count();
-    const bool can_use_filament_mapping = plater()->sidebar().uses_filament_mapping_badges();
+    // The init call runs while the Plater is still being constructed, so the sidebar does not exist yet.
+    const bool can_use_filament_mapping = !init && plater()->sidebar().uses_filament_mapping_badges();
     const bool can_remap_filament    = can_use_filament_mapping && active_filament_menu_id >= physical_extruder_cnt;
     if (can_remap_filament) {
         wxMenu *mapping_menu      = new wxMenu();

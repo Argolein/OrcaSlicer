@@ -60,6 +60,7 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - 2026-09-27 sync: upstream's re-sync dropped the branch's `m_is_multiple_nozzle` gate on `should_heating` in WipeTower, so every non-BBL toolchange got `M400` + `M104`. Restored as `s_IsBBLPrinter || m_is_multiple_nozzle` (BBL keeps upstream behavior).
 - 2026-09-27 smoke test: CLI slicing of a 2-filament job (no 3MF) crashed. Two CLI-only causes, not the wipe-tower planner: (1) `filament_colour` is a project setting, not a filament preset option, so the CLI's per-filament merge left it at 1 entry while Print derives the filament count from its size — brim indexed `filament_map` past the end and the tower planned no toolchange. The CLI now pads `filament_colour` to the loaded filament count. The pre-merge CLI had the same gap but silently collapsed filament 2 into filament 1. (2) Upstream's CLI read-back `set_filament_maps(...)` hit the branch's GUI-only normalization (`wxGetApp().preset_bundle`); `PartPlate::set_filament_maps` now stores the maps as-is when there is no GUI app, as upstream does.
 - 2026-09-27: PartPlate's filament-map helpers (`get_filament_maps`, `get_real_filament_maps`, `orca_managed_extruder_mapping_enabled`) read `wxGetApp().preset_bundle`, which is null in the CLI. They now fall back to upstream's raw-map behavior when there is no GUI app. Reproduced crashes: `--export-3mf` without `--slice`, `--slice` with `--export-3mf`, and a 3MF whose plate stores `filament_maps`. The GUI path is unchanged.
+- 2026-09-27: the merged build crashed at GUI startup: upstream's rebuilt `MenuFactory::create_filament_action_menu` has no `if (init) return;`, and the branch's Extruder Mapping block read `plater()->sidebar()` while the Plater was still being constructed. The mapping check is now skipped on the init call. Also guarded `check_single_extruder_mixed_filament_risk` and `set_default_wipe_tower_pos_for_plate` against a missing GUI app (upstream code, GUI-only callers today). MERGE_NOTES now requires an app-start check after every sync.
 - 2026-09-27 sync: upstream now builds with `-Werror` on Clang. Branch code must compile warning-free (first hit: an unused `this` capture in SnapmakerPrinterAgent.cpp).
 
 ## Handoff
@@ -78,7 +79,7 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - Stopped at:
   - Merge committed and pushed to origin/ultimate-merge.v2 on Owner's OK (2026-09-27).
 - Next step:
-  - Smoke test done 2026-09-27 via CLI (two cubes, two filaments): Bambu X1C, Prusa XL 5T (+ interface features, + priming), Prusa CORE One MMU3, Custom MyToolChanger, Custom MyKlipper with Orca-managed mapping all slice; tower toolchanges, T commands and `;VT` markers as expected. GUI not exercised.
+  - Smoke test done 2026-09-27 via CLI (two cubes, two filaments): Bambu X1C, Prusa XL 5T (+ interface features, + priming), Prusa CORE One MMU3, Custom MyToolChanger, Custom MyKlipper with Orca-managed mapping all slice; tower toolchanges, T commands and `;VT` markers as expected. GUI checked the same day after the startup fix: the XL 5T two-filament project slices in the app window and the filament menu opens.
 - Open blockers:
   - none
 

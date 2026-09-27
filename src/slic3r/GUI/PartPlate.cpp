@@ -2116,6 +2116,9 @@ bool PartPlate::check_tpu_printable_status(const DynamicPrintConfig & config, co
 bool PartPlate::check_single_extruder_mixed_filament_risk(const DynamicPrintConfig &config, std::string &warning_text) const
 {
     warning_text.clear();
+    // The CLI has no GUI_App, so wxGetApp() would dereference a null wxTheApp.
+    if (!wxTheApp)
+        return false;
 
     auto *nozzle_diameter_opt = config.option<ConfigOptionFloatsNullable>("nozzle_diameter");
     if (!nozzle_diameter_opt || nozzle_diameter_opt->values.size() > 1)
@@ -4533,6 +4536,9 @@ void PartPlateList::release_icon_textures()
 
 void PartPlateList::set_default_wipe_tower_pos_for_plate(int plate_idx, bool init_pos)
 {
+    // The CLI has no GUI_App (and no project config to write the position into).
+    if (!wxTheApp)
+        return;
     DynamicConfig &     proj_cfg     = wxGetApp().preset_bundle->project_config;
     ConfigOptionFloats *wipe_tower_x = proj_cfg.opt<ConfigOptionFloats>("wipe_tower_x");
     ConfigOptionFloats *wipe_tower_y = proj_cfg.opt<ConfigOptionFloats>("wipe_tower_y");

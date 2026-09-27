@@ -153,3 +153,17 @@ grep -c 'tower_interface_purge_length\|m_enable_tower_interface_cooldown_during_
 
 Then build (`./build_release_macos.sh -x -s -a arm64`) and, ideally, slice one model on a
 non-BBL printer (exercises the `_travel_to_z` preamble path).
+
+**The app must start (2026-09-27).** A clean build and a green ctest run do not prove the GUI opens:
+the 2026-09-27 sync shipped a startup crash (a branch menu block lost its `if (init) return;` when
+upstream rewrote `MenuFactory::create_filament_action_menu`). After every sync, launch the build with
+a scratch data folder so the real user profile is not touched, and check it is still running:
+
+```bash
+open -n "$PWD/build/arm64/OrcaSlicer/OrcaSlicer.app" --args --datadir "$PWD/.workflow/scratch/gui-data"
+sleep 25; pgrep -fl "^$PWD/build/arm64/OrcaSlicer/OrcaSlicer.app/Contents/MacOS/OrcaSlicer"   # must print a pid
+```
+
+Also slice from the CLI: `.workflow/scratch/smoke/run.sh` (gitignored scratch) slices two cubes on two
+filaments for BBL, toolchanger, SEMM and Orca-managed setups. Upstream's wipe-tower tests build their
+configs in code and do not cover the CLI or GUI filament paths.

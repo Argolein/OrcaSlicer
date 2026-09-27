@@ -68,6 +68,9 @@ static const int PARTPLATE_ICON_GAP_Y = 5;
 
 static bool orca_managed_extruder_mapping_enabled()
 {
+    // The CLI has no GUI_App, so wxGetApp() would dereference a null wxTheApp.
+    if (!wxTheApp)
+        return false;
     Slic3r::PresetBundle *preset_bundle = Slic3r::GUI::wxGetApp().preset_bundle;
     if (preset_bundle == nullptr)
         return false;
@@ -406,6 +409,11 @@ PrintSequence PartPlate::get_real_print_seq(bool* plate_same_as_global) const
 std::vector<int> PartPlate::get_real_filament_maps(const DynamicConfig& g_config, bool* use_global_param) const
 {
 	auto maps = get_filament_maps();
+    // The CLI has no GUI_App (and no preset bundle): return the maps as given, as upstream does.
+    if (!wxTheApp || !wxGetApp().preset_bundle) {
+        if (use_global_param) { *use_global_param = maps.empty(); }
+        return maps.empty() ? g_config.option<ConfigOptionInts>("filament_map")->values : maps;
+    }
     const size_t filament_count = wxGetApp().preset_bundle->filament_presets.size();
     const int    physical_extruder_count = wxGetApp().preset_bundle->get_printer_extruder_count();
     const bool   use_orca_mapping = orca_managed_extruder_mapping_enabled();
@@ -4014,6 +4022,9 @@ void PartPlate::set_filament_map_mode(const FilamentMapMode& mode)
 std::vector<int> PartPlate::get_filament_maps() const
 {
     std::string key = "filament_map";
+    // The CLI has no GUI_App (and no preset bundle): return the stored maps as given, as upstream does.
+    if (!wxTheApp || !wxGetApp().preset_bundle)
+        return m_config.has(key) ? m_config.option<ConfigOptionInts>(key)->values : std::vector<int>();
     const bool  use_orca_mapping = orca_managed_extruder_mapping_enabled();
     if (m_config.has(key))
         return normalize_filament_maps(m_config.option<ConfigOptionInts>(key)->values,

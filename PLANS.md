@@ -58,6 +58,7 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - 2026-09-27 sync: upstream's new `wait_for_temp_on_wipe_tower` (408db4b3b0) is WipeTower2-only; in the unified pipeline it did nothing, so its line is hidden in the printer tab (Tab.cpp), like the cone angle.
 - 2026-09-27 sync: fixed a pre-existing branch crash exposed by upstream's new tests: non-BBL printers with `single_extruder_multi_material_priming` on skipped the initial `set_extruder` while `WipeTower::prime` produces nothing, so `process_layer` dereferenced a null filament. GCode.cpp now counts priming only when the tower returned priming lines (`wipe_tower_priming`).
 - 2026-09-27 sync: upstream's re-sync dropped the branch's `m_is_multiple_nozzle` gate on `should_heating` in WipeTower, so every non-BBL toolchange got `M400` + `M104`. Restored as `s_IsBBLPrinter || m_is_multiple_nozzle` (BBL keeps upstream behavior).
+- 2026-09-27 smoke test: CLI slicing of a 2-filament job (no 3MF) crashed. Two CLI-only causes, not the wipe-tower planner: (1) `filament_colour` is a project setting, not a filament preset option, so the CLI's per-filament merge left it at 1 entry while Print derives the filament count from its size — brim indexed `filament_map` past the end and the tower planned no toolchange. The CLI now pads `filament_colour` to the loaded filament count. The pre-merge CLI had the same gap but silently collapsed filament 2 into filament 1. (2) Upstream's CLI read-back `set_filament_maps(...)` hit the branch's GUI-only normalization (`wxGetApp().preset_bundle`); `PartPlate::set_filament_maps` now stores the maps as-is when there is no GUI app, as upstream does.
 - 2026-09-27 sync: upstream now builds with `-Werror` on Clang. Branch code must compile warning-free (first hit: an unused `this` capture in SnapmakerPrinterAgent.cpp).
 
 ## Handoff
@@ -76,7 +77,7 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - Stopped at:
   - Merge committed and pushed to origin/ultimate-merge.v2 on Owner's OK (2026-09-27).
 - Next step:
-  - Runtime smoke test: slice a multi-material plate on a non-BBL printer and check tower output.
+  - Smoke test done 2026-09-27 via CLI (two cubes, two filaments): Bambu X1C, Prusa XL 5T (+ interface features, + priming), Prusa CORE One MMU3, Custom MyToolChanger, Custom MyKlipper with Orca-managed mapping all slice; tower toolchanges, T commands and `;VT` markers as expected. GUI not exercised.
 - Open blockers:
   - none
 

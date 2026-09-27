@@ -3680,6 +3680,16 @@ int CLI::run(int argc, char **argv)
         }
     }
 
+    //ORCA: filament_colour is a project setting, not a filament preset option, so the per-filament
+    //      merge above never extends it. Without a 3MF or --filament-colour it keeps the single
+    //      default entry, while Print takes the filament count from its size: the wipe tower plans
+    //      no tool change, and filament maps / brim index past the end for filaments 2+.
+    if (filament_count > 0) {
+        std::vector<std::string> &colours = m_print_config.option<ConfigOptionStrings>("filament_colour", true)->values;
+        if (!colours.empty() && colours.size() < size_t(filament_count))
+            colours.resize(filament_count, colours.back());
+    }
+
     //compute the flush volume
     ConfigOptionStrings *selected_filament_colors_option = m_extra_config.option<ConfigOptionStrings>("filament_colour");
     ConfigOptionStrings *project_filament_colors_option = m_print_config.option<ConfigOptionStrings>("filament_colour");

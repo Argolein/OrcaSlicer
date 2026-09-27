@@ -4026,6 +4026,11 @@ std::vector<int> PartPlate::get_filament_maps() const
 
 void PartPlate::set_filament_maps(const std::vector<int>& f_maps)
 {
+    // The CLI has no GUI_App (and no preset bundle): store its maps as given, as upstream does.
+    if (!wxTheApp || !wxGetApp().preset_bundle) {
+        m_config.option<ConfigOptionInts>("filament_map", true)->values = f_maps;
+        return;
+    }
     m_config.option<ConfigOptionInts>("filament_map", true)->values =
         normalize_filament_maps(f_maps,
                                 wxGetApp().preset_bundle->filament_presets.size(),

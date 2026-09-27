@@ -74,7 +74,7 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
   - Branch feature: #406 (H2C Hybrid slots) fails because `normalize_filament_maps` (ff9a5dd81c) maps filament indexes >= physical extruder count to extruder 1.
   - Unexplained: #1156 (custom G-code motion limits restored; acceleration clamped to 1500 by machine limits; code matches upstream). May already have failed before the merge.
 - Stopped at:
-  - Merge committed locally. Not pushed — MERGE_NOTES requires explicit OK.
+  - Merge committed and pushed to origin/ultimate-merge.v2 on Owner's OK (2026-09-27).
 - Next step:
   - Runtime smoke test: slice a multi-material plate on a non-BBL printer and check tower output.
 - Open blockers:

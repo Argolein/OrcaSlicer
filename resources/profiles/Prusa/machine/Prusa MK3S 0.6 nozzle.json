@@ -2,6 +2,7 @@
 	"type": "machine",
 	"name": "Prusa MK3S 0.6 nozzle",
 	"inherits": "fdm_machine_common",
+	"binary_gcode": "0",
 	"from": "system",
 	"setting_id": "k45a0QuhbGQypyDs",
 	"instantiation": "true",

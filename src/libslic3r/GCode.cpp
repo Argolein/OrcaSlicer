@@ -8461,6 +8461,8 @@ void GCode::append_full_config(const Print &print, std::string &str)
         // gain lines). They only affect output on the pvmFast / pvmSaving branch.
         "prime_volume_mode"sv,
         "flush_multiplier_fast"sv,
+        // binary_gcode only picks the output file format, so it stays out of the config block too.
+        "binary_gcode"sv,
         "filament_flush_temp_fast"sv,
         "support_fast_purge_mode"sv,
         // deretract_speed_extruder_change is a device/firmware-facing machine-profile key with no slicer

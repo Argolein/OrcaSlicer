@@ -4737,6 +4737,15 @@ void PrintConfigDef::init_fff_params()
     def->readonly = false;
     def->set_default_value(new ConfigOptionEnum<GCodeFlavor>(gcfMarlinLegacy));
 
+    def = this->add("binary_gcode", coBool);
+    def->label = L("Binary G-code");
+    def->tooltip = L("Save and upload G-code in Prusa's binary G-code format (.bgcode). The file is compressed "
+                     "and checksummed, so it is smaller and the printer can detect a damaged file. "
+                     "Enable this only if the printer firmware supports binary G-code, as Prusa printers "
+                     "with Buddy firmware do.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("gcode_skip_config_block", coBool);
     def->label = L("Skip G-code config block");
     def->tooltip = L("Do not write the CONFIG_BLOCK (slicer configuration key/value pairs) into the G-code file. "

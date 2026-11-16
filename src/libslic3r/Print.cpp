@@ -91,6 +91,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <sstream>
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/format.hpp>
 #include <boost/log/trivial.hpp>
@@ -356,6 +357,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "extrusion_rate_smoothing_external_perimeter_only",
         "reduce_infill_retraction",
         "filename_format",
+        "binary_gcode",
         "retraction_minimum_travel",
         "retract_before_wipe",
         // Orca:
@@ -5810,7 +5812,13 @@ std::string Print::output_filename(const std::string &filename_base) const
     }
     config.set_key_value("filament_name", new ConfigOptionString(filament_name));
 
-    return this->PrintBase::output_filename(m_config.filename_format.value, ".gcode", filename_base, &config);
+    // Binary G-code: profiles write ".gcode" into filename_format, so swap the extension to match the file content.
+    std::string filename_format = m_config.filename_format.value;
+    if (m_config.binary_gcode && boost::iends_with(filename_format, ".gcode"))
+        filename_format.replace(filename_format.size() - 6, 6, ".bgcode");
+    else if (!m_config.binary_gcode && boost::iends_with(filename_format, ".bgcode"))
+        filename_format.replace(filename_format.size() - 7, 7, ".gcode");
+    return this->PrintBase::output_filename(filename_format, m_config.binary_gcode ? ".bgcode" : ".gcode", filename_base, &config);
 }
 
 std::string Print::get_model_name() const

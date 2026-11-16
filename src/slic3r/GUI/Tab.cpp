@@ -5684,6 +5684,7 @@ void TabPrinter::build_fff()
         optgroup->append_single_option_line("printer_structure", "printer_basic_information_advanced#printer-structure");
         optgroup->append_single_option_line("gcode_flavor", "printer_basic_information_advanced#g-code-flavor");
         optgroup->append_single_option_line("gcode_skip_config_block", "printer_basic_information_advanced#skip-g-code-config-block");
+        optgroup->append_single_option_line("binary_gcode");
         optgroup->append_single_option_line("pellet_modded_printer", "printer_basic_information_advanced#pellet-modded-printer");
         optgroup->append_single_option_line("bbl_use_printhost", "printer_basic_information_advanced#use-3rd-party-print-host");
 
@@ -6907,7 +6908,7 @@ void TabPrinter::toggle_options()
             toggle_line(el, is_BBL_printer, -1, _L("This setting requires a Bambu Lab printer."));
 
         // SoftFever: hide non-BBL settings
-        for (auto el : {"use_firmware_retraction", "use_relative_e_distances", "support_multi_bed_types", "bed_type_specific_z_offset", "pellet_modded_printer", "bed_mesh_max", "bed_mesh_min", "bed_mesh_probe_distance", "adaptive_bed_mesh_margin", "thumbnails"})
+        for (auto el : {"use_firmware_retraction", "use_relative_e_distances", "support_multi_bed_types", "bed_type_specific_z_offset", "pellet_modded_printer", "bed_mesh_max", "bed_mesh_min", "bed_mesh_probe_distance", "adaptive_bed_mesh_margin", "thumbnails", "binary_gcode"})
           toggle_line(el, !is_BBL_printer, -1, _L("This setting is unavailable for Bambu Lab printers."));
 
         const bool support_multi_bed_types      = m_config->opt_bool("support_multi_bed_types");

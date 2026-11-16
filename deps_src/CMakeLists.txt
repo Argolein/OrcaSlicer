@@ -17,10 +17,12 @@ add_subdirectory(Shiny)
 add_subdirectory(admesh)
 add_subdirectory(clipper2)
 add_subdirectory(glu-libtess)
+add_subdirectory(heatshrink)   # Compression used by libbgcode
 add_subdirectory(hidapi)
 add_subdirectory(hints)        # Hints library with utility executable
 add_subdirectory(imgui)
 add_subdirectory(imguizmo)
+add_subdirectory(libbgcode)    # Prusa binary G-code (.bgcode) writer
 add_subdirectory(libigl)
 add_subdirectory(libnest2d)
 add_subdirectory(mcut)

@@ -4,6 +4,7 @@ add_executable(${_TEST_NAME}_tests
 	test_helpers.cpp
 	test_helpers.hpp
 	test_adaptive_pressure_advance.cpp
+	test_binary_gcode.cpp
 	test_bridge.cpp
 	test_calib.cpp
 	test_cooling.cpp
@@ -42,7 +43,7 @@ add_executable(${_TEST_NAME}_tests
 	test_wipe.cpp
 	test_wipe_tower.cpp
 	)
-target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)
+target_link_libraries(${_TEST_NAME}_tests test_common libslic3r libbgcode Catch2::Catch2WithMain)
 if (SLIC3R_PCH AND NOT SLIC3R_SYNTAXONLY)
     add_precompiled_header(${_TEST_NAME}_tests ${CMAKE_SOURCE_DIR}/src/libslic3r/pchheader.hpp FORCEINCLUDE)
 endif ()

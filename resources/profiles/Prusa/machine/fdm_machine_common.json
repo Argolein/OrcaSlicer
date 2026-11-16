@@ -4,6 +4,7 @@
 	"from": "system",
 	"instantiation": "false",
 	"gcode_flavor": "marlin",
+	"binary_gcode": "1",
 	"machine_start_gcode": "",
 	"machine_end_gcode": "",
 	"extruder_colour": [

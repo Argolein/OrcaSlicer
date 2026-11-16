@@ -269,6 +269,8 @@ set(lisbslic3r_sources
     GCode/TimelapsePosPicker.cpp
     GCode/TimelapsePosPicker.hpp
     GCode.cpp
+    GCode/BinaryGCode.cpp
+    GCode/BinaryGCode.hpp
     GCode/ExtrusionProcessor.hpp
     GCode/FanMover.cpp
     GCode/FanMover.hpp
@@ -794,6 +796,7 @@ target_link_libraries(libslic3r
         draco::draco
         glu-libtess
         JPEG::JPEG
+        libbgcode
         libslic3r_cgal
         mcut
         noise::noise

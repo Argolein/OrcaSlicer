@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <new>
+#include "libslic3r/GCode/BinaryGCode.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Zipper.hpp"
@@ -52,6 +53,7 @@
 #include <boost/filesystem/operations.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/nowide/cstdio.hpp>
+#include <boost/system/error_code.hpp>
 #include "I18N.hpp"
 // #include "RemovableDriveManager.hpp"
 
@@ -868,16 +870,31 @@ void BackgroundSlicingProcess::finalize_gcode()
     // export_path may be changed by the post-processing script as well if the post processing script decides so, see GH #6042.
     // Runs both post-processing scripts and plugins on a single .pp copy of the G-code (make_copy = true),
     // so neither touches the original file the G-code viewer keeps memory-mapped.
-    bool post_processed = run_post_process_scripts(output_path, true, "File", export_path, m_fff_print->full_print_config());
+    bool output_is_temp_copy = run_post_process_scripts(output_path, true, "File", export_path, m_fff_print->full_print_config());
 
-    auto remove_post_processed_temp_file = [post_processed, &output_path]() {
-        if (post_processed)
+    auto remove_post_processed_temp_file = [&output_is_temp_copy, &output_path]() {
+        if (output_is_temp_copy)
             try {
                 boost::filesystem::remove(output_path);
             } catch (const std::exception& ex) {
                 BOOST_LOG_TRIVIAL(error) << "Failed to remove temp file " << output_path << ": " << ex.what();
             }
     };
+
+    // Binary G-code is converted from the final, post-processed G-code into its own temp copy.
+    if (m_fff_print->config().binary_gcode) {
+        const std::string binary_path = m_temp_output_path + ".bgcode";
+        try {
+            convert_to_binary_gcode(output_path, binary_path);
+        } catch (...) {
+            remove_post_processed_temp_file();
+            throw;
+        }
+        remove_post_processed_temp_file();
+        output_path         = binary_path;
+        output_is_temp_copy = true;
+    }
+
     m_print->set_status(99, _utf8(L("Successfully executed post-processing script")));
 
     // FIXME localize the messages
@@ -1018,6 +1035,13 @@ void BackgroundSlicingProcess::prepare_upload()
                                              m_fff_print->full_print_config());
                 if (post_process)
                     m_upload_job.upload_data.upload_path = output_name_str;
+            }
+            if (m_fff_print->config().binary_gcode) {
+                const boost::filesystem::path binary_path = source_path.string() + ".bgcode";
+                convert_to_binary_gcode(source_path.string(), binary_path.string());
+                boost::system::error_code ec;
+                boost::filesystem::remove(source_path, ec);
+                source_path = binary_path;
             }
         }
     } else {

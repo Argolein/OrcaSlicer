@@ -71,6 +71,20 @@ SCENARIO("Generic config validation performs as expected.", "[Config]") {
     }
 }
 
+TEST_CASE("A percentage bridge line width passes validation with mixed nozzle diameters", "[Config][Regression]")
+{
+    // Three tools with 0.4, 0.6 and 0.25 mm nozzles: 100% resolves against the largest nozzle, 0.6 mm.
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_key_value("nozzle_diameter", new ConfigOptionFloats{0.4, 0.6, 0.25});
+
+    config.set_deserialize_strict("bridge_line_width", "100%");
+    CHECK(config.validate().count("bridge_line_width") == 0);
+
+    // An absolute width wider than every nozzle is still rejected.
+    config.set_deserialize_strict("bridge_line_width", "0.7");
+    CHECK(config.validate().count("bridge_line_width") == 1);
+}
+
 SCENARIO("Config accessor functions perform as expected.", "[Config]") {
     GIVEN("A config generated from default options") {
         Slic3r::DynamicPrintConfig config = Slic3r::DynamicPrintConfig::full_print_config();

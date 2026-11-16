@@ -27,9 +27,9 @@ public:
     AgentInfo        get_agent_info() override { return get_agent_info_static(); }
 
     // Pull-mode filament sync over PrusaLink (no MQTT / websocket).
-    int  connect_printer(std::string dev_id, std::string dev_ip, std::string username, std::string password, bool use_ssl) override;
+    int  connect_printer(const PrinterConnectionParams& params) override;
     int  disconnect_printer() override;
-    bool fetch_filament_info(std::string dev_id) override;
+    bool fetch_filament_info(std::string dev_id, FilamentSyncMode sync_mode = FilamentSyncMode::pull) override;
 
 private:
     // PrusaLink host connection settings read from the edited printer preset.

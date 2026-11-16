@@ -59,15 +59,15 @@ std::string PrusaPrinterAgent::make_url(const std::string& host, const std::stri
     return "http://" + host + "/" + path;
 }
 
-int PrusaPrinterAgent::connect_printer(std::string dev_id, std::string dev_ip, std::string username, std::string password, bool use_ssl)
+int PrusaPrinterAgent::connect_printer(const PrinterConnectionParams& params)
 {
     // PrusaLink is queried on demand (pull mode), so there is no persistent connection or
     // status stream to establish. We only populate device_info so build_ams_payload() can
     // resolve the MachineObject and stamp its printer_type during fetch_filament_info().
-    if (dev_id.empty())
+    if (params.dev_id.empty())
         return BAMBU_NETWORK_ERR_INVALID_HANDLE;
 
-    init_device_info(dev_id, dev_ip, username, password, use_ssl);
+    init_device_info(params.dev_id, params.host, params.username, params.password, params.use_ssl, params.port);
     return BAMBU_NETWORK_SUCCESS;
 }
 
@@ -77,7 +77,7 @@ int PrusaPrinterAgent::disconnect_printer()
     return BAMBU_NETWORK_SUCCESS;
 }
 
-bool PrusaPrinterAgent::fetch_filament_info(std::string dev_id)
+bool PrusaPrinterAgent::fetch_filament_info(std::string dev_id, FilamentSyncMode /*sync_mode*/)
 {
     const HostConfig cfg = read_host_config();
     if (!cfg.valid) {

@@ -50,7 +50,7 @@ the refactor — other files already depend on it and it will not compile).
 | Wipe tower overhaul | WipeTower*.cpp, GCode.cpp, ConfigManipulation.cpp | unified `append_tcr` (no `append_tcr2`); rib-wall + per-role filament toggles |
 | Bed-type-specific Z offsets | GCode.cpp (`get_active_z_offset`) | (see `_travel_to_z` note below) |
 | QIDI printer flag | Print.hpp | `m_isQIDIPrinter` (keep next to `m_isBBLPrinter`) |
-| Printer agents | slic3r/GUI agents, MoonrakerPrinterAgent.cpp | Prusa filament sync, Snapmaker AMS matching |
+| Printer agents | slic3r/GUI agents, MoonrakerPrinterAgent.cpp | Prusa filament sync (Snapmaker: upstream's agent, taken verbatim since 2026-11-16) |
 | Tower interface preheat | GCode.cpp `use_support_tower_interface_temp()` | narrower than upstream's inline `enable_tower_interface_features && tcr.is_contact` — also requires `filament_is_support` |
 | Wipe-tower purge model | Print.cpp `_make_wipe_tower()` | branch splits prime `wipe_volume` vs `purge_volume` + `purge_in_prime_tower && SEMM` path w/ `filament_minimal_purge_on_wipe_tower` add-back |
 
@@ -139,6 +139,26 @@ not by picking hunks. Then check that these branch pieces survived, because a re
 
 **`-Werror` on Clang (upstream CMakeLists, 2026-09).** Branch code must build warning-free; fix the
 warning, do not add it to the disabled list.
+
+**IMEX (IDEX/IQEX, upstream 2026-10/11, gated on `is_imex`).** Upstream maps logical filaments to
+physical heaters with `imex_physical_heater_for(is_imex, physical_extruder_map, id)`, which is the
+identity off IMEX — so it never applies Orca-managed mapping. Wherever upstream adds a "which heater /
+which tool" decision, take the IMEX map when `is_imex` and `get_toolchange_id` / `get_output_tool_id`
+otherwise (`GCodeWriter::set_temperature`, `OozePrevention::pre_toolchange`).
+
+**Silently merged code (2026-11-16).** Conflict markers only show where both sides edited the same
+lines; upstream code that merges cleanly can still bypass a branch feature. After resolving, check:
+- counts of `get_toolchange_id`, `rounded_filament_acceleration`, `full_config_for_current_mapping_mode`,
+  `normalize_filament_maps` in `HEAD` vs the merged tree (none may drop);
+- every write of `previous_extruder`, `next_extruder`, `current_extruder`, `filament_extruder_id`,
+  `initial_*tool/_extruder` uses the mapped id (2026-11-16: a new filament end G-code block in `append_tcr` did not);
+- upstream wipe-tower commits that touched only `WipeTower2.cpp` / `append_tcr2`: port or record each in PLANS.md.
+
+**Deps build on this Mac picks up Homebrew through pkg-config (2026-11-16).** The build script hides
+Homebrew from CMake only. Assimp asks pkg-config for `minizip`, found Homebrew's, and failed on
+`unzip.h`. Build deps with pkg-config pointed at an empty folder:
+`env -u PKG_CONFIG_PATH PKG_CONFIG_LIBDIR=<empty dir> ./build_release_macos.sh -d -x -a arm64`
+(a fresh deps folder may use `-x`; only an existing Unix Makefiles cache must not).
 
 ## Post-merge verification (cheap, do before building)
 

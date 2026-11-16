@@ -62,8 +62,41 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
 - 2026-09-27: PartPlate's filament-map helpers (`get_filament_maps`, `get_real_filament_maps`, `orca_managed_extruder_mapping_enabled`) read `wxGetApp().preset_bundle`, which is null in the CLI. They now fall back to upstream's raw-map behavior when there is no GUI app. Reproduced crashes: `--export-3mf` without `--slice`, `--slice` with `--export-3mf`, and a 3MF whose plate stores `filament_maps`. The GUI path is unchanged.
 - 2026-09-27: the merged build crashed at GUI startup: upstream's rebuilt `MenuFactory::create_filament_action_menu` has no `if (init) return;`, and the branch's Extruder Mapping block read `plater()->sidebar()` while the Plater was still being constructed. The mapping check is now skipped on the init call. Also guarded `check_single_extruder_mixed_filament_risk` and `set_default_wipe_tower_pos_for_plate` against a missing GUI app (upstream code, GUI-only callers today). MERGE_NOTES now requires an app-start check after every sync.
 - 2026-09-27 sync: upstream now builds with `-Werror` on Clang. Branch code must compile warning-free (first hit: an unused `this` capture in SnapmakerPrinterAgent.cpp).
+- 2026-11-16 sync: upstream's IMEX (IDEX/IQEX, gated on `is_imex`) has its own logical-to-physical heater map. It coexists with Orca-managed mapping: `GCodeWriter::set_temperature` and `OozePrevention::pre_toolchange` take the IMEX map when `is_imex`, else `get_output_tool_id` / `get_toolchange_id`. Upstream's new "switch off unused heaters" check compared logical ids, which would switch off a physical extruder another mapped filament still needs; it now compares mapped tool ids.
+- 2026-11-16 sync: upstream's "joined" Precise-Z sliver layers (#17204) adopted in the unified tower path; `joined_tower_z()` uses `get_active_z_offset` as its base, like `m_compacted_tower_z`. `plan_toolchange` calls use `wipe_tower_print_z`.
+- 2026-11-16 sync: `tower_height_tag()` and GCode's `m_sparse_layers_combined` dropped with upstream (#17199): the tower now writes the printer's tag dialect itself, so the helper never fired. The branch's duplicate `s_IsBBLPrinter` assignment before `generate_new()` was removed; upstream sets it at the top of `_make_wipe_tower()`.
+- 2026-11-16 sync: upstream's `WipeTower2`-only changes stay out of the unified pipeline (`append_tcr2`, Type2 `_make_wipe_tower` branch). Checked: the restore-layer-Z lift and the Klipper M400 fix also reached `append_tcr` / `WipeTower.cpp`. Not ported, by Owner's decision (2026-11-16): upstream's final unload for single-extruder MMU when the tower stops below the last layer (#17496); the unified path keeps skipping it, as before.
+- 2026-11-16 sync: CoolingBuffer bit collision — upstream's belt-band tags took `1 << 21/22`; the branch's internal-perimeter tags moved to `1 << 23/24` (in-memory only).
+- 2026-11-16 sync: `enable_arc_fitting` became an enum (Disabled / Enabled / Sparse infill only). The branch's "active Z offset disables arc fitting" rules in ConfigManipulation.cpp and Field.cpp now read and write `ConfigOptionEnum<ArcFittingMode>`; a bool lookup would silently never fire.
+- 2026-11-16 sync: Snapmaker AMS matching — Owner no longer uses Snapmaker printers, so the branch's matcher (`resolve_tray_info_idx`, sub-type-preserving `combine_filament_type`) was dropped and upstream's agent (#16300, with tests) taken verbatim.
+- 2026-11-16 sync: PartPlate `estimate_wipe_tower_polygon` keeps the branch's rotated-footprint clamp and runs upstream's re-place-clear-of-objects step (#16728) on the branch's per-axis anchor bounds, with the rotated footprint polygon as the overlap shape.
+- 2026-11-16 sync: Plater background apply follows upstream's order (device filament info before `apply`) but keeps `full_config_for_current_mapping_mode`.
+- 2026-11-16 sync: fixed a pre-existing branch mismatch exposed by upstream's new tests: `Print::_make_wipe_tower()` plans every non-BBL, non-QIDI tower from `all_extruders().back()`, but `GCode::_do_export` started from there only for Type 2. A non-BBL Type 1 print threw "append_tcr was asked to do a toolchange it didn't expect". The G-code now uses the tower's rule (`! is_bbl && ! is_QIDI`). QIDI Type 2 now starts at `first_extruder()`, matching its tower (untested: no QIDI case).
+- 2026-11-16 sync: upstream's "switch off unused heaters" (109d09e0b8) treats another filament on the same heater as still needing it unless that filament finished on an earlier layer; otherwise a mapped top layer got `M104 S0` followed straight by `M109`. Mapped smoke output matches the pre-merge app again.
+- 2026-11-16 sync: `current_hotend` / `next_hotend` placeholders follow upstream's new rule (ee26e94170, H2D fix): -1 on every BBL printer without a dynamic nozzle map, the extruder index elsewhere. The old rule (only multi-nozzle H2C / X2D got -1) was upstream code the branch never changed, so it was not kept.
+- 2026-11-16 sync: upstream test "A support-only change on a belt purge print matches a fresh slice" is flaky here (2 of 5 runs fail on one binary; header machine limits and time estimate differ). Not investigated; not known whether upstream's own build flakes too.
+- 2026-11-16 sync: fixed a pre-existing branch bug (since 62729b08ae): `diff_with_missing_parent_options` used `deep_diff()`, whose per-column `key#i` entries `config.option()` cannot resolve, so saved user presets with a parent silently dropped per-column vector changes; a disabled filament override crashed on save. It now uses `config.diff()` (whole keys, as upstream) and keeps the add-back of keys the parent lacks.
+- 2026-11-16 sync: the wipe-tower filament end G-code placeholder `filament_extruder_id` (new upstream code in `append_tcr`) uses `get_toolchange_id`, like the other tool-facing placeholders.
 
 ## Handoff
+- Agent: Claude Code
+- Date: 2026-11-16
+- Completed this session:
+  - Synced with upstream `main` (e0f7f0b7ee): was 1931 behind / 94 ahead, merge base ae27a795b6. 86 conflict blocks in 24 files resolved; the 2026-11-16 entries in ## Decisions record every non-obvious choice.
+  - Upstream features adopted around branch features: IMEX (IDEX/IQEX), joined Precise-Z tower layers, belt printers, arc fitting modes, prime tower relocation, standby heater shut-off, Klipper M400 reduction.
+  - Fixed during the sync: non-BBL Type 1 tower start-filament mismatch (export threw), preset save dropping per-column values (crash in a new test), mapped heater shut-off, PrusaPrinterAgent on the new agent API, arc fitting enum in GUI rules. Snapmaker agent taken from upstream (Owner no longer uses Snapmaker).
+  - Deps rebuilt in the worktree (pkg-config hidden from Homebrew, see MERGE_NOTES); arm64 build clean.
+  - Tests: 3246 of 3268 pass. 22 failures: 16 deliberate or known branch differences (Cone wall, WipeTower2-only behaviour, MMU final unload kept skipped, nozzle-change section off on non-BBL, tower estimate vs actual, Hybrid slot #406, custom G-code motion limits), 5 caused by `normalize_filament_maps` overriding manual filament maps, 1 flaky (belt purge re-slice, 2 of 5 runs fail).
+  - CLI smoke (`.workflow/scratch/smoke`, 6 setups) vs the pre-merge binary: all slice; identical tool/temperature output except upstream's Klipper M400 removal and 1 s preheat timing hints on the Prusa XL. App starts with a scratch data folder.
+- Stopped at:
+  - Merge committed on `sync/upstream-2026-11-16` and pushed (that branch only). `ultimate-merge.v2` not moved yet.
+- Next step:
+  - On Owner's OK: fast-forward `ultimate-merge.v2` to the sync commit and push.
+  - Owner decision pending: should `normalize_filament_maps` keep forcing filament i onto extruder i+1 on every printer, or only under Orca-managed mapping (honouring manual maps elsewhere)?
+- Open blockers:
+  - none
+
+## Handoff (previous)
 - Agent: Claude Code
 - Date: 2026-09-27
 - Completed this session:
@@ -80,24 +113,6 @@ Sync the current `ultimate-merge.v2` branch with `main` and resolve merge confli
   - Merge committed and pushed to origin/ultimate-merge.v2 on Owner's OK (2026-09-27).
 - Next step:
   - Smoke test done 2026-09-27 via CLI (two cubes, two filaments): Bambu X1C, Prusa XL 5T (+ interface features, + priming), Prusa CORE One MMU3, Custom MyToolChanger, Custom MyKlipper with Orca-managed mapping all slice; tower toolchanges, T commands and `;VT` markers as expected. GUI checked the same day after the startup fix: the XL 5T two-filament project slices in the app window and the filament menu opens.
-- Open blockers:
-  - none
-
-## Handoff (previous)
-- Agent: Claude Code
-- Date: 2026-07-30
-- Completed this session:
-  - Synced `ultimate-merge.v2` with `upstream/main` (54dc5a2f1d): was 433 behind / 86 ahead. Merge base 6fda82476d.
-  - Resolved 51 conflict hunks across 18 files: GCode.cpp (18), Print.cpp (6), Plater.cpp (4), GCodeWriter.cpp (4), OptionsGroup.cpp (3), Tab.cpp (2), WipeTower.{cpp,hpp} (2+2), GCodeProcessor.cpp (2), and one each in GCode.hpp, GCodeProcessor.hpp, PrintConfig.cpp, TreeSupport.cpp, ConfigManipulation.cpp, Field.cpp, PartPlate.cpp, TextInput.hpp, NetworkAgentFactory.cpp.
-  - Branch features preserved: filament max-accel clamp, short-travel acceleration, Orca-managed mapping / mapped tool ids + `;VT`, unified wipe-tower pipeline (no `append_tcr2`), rib-wall toggles, bed-type Z offsets, tower-interface preheat (support-filament-only), tree-support bottom gap, Prusa/Snapmaker agents, QIDI flag, OptionsGroup null-safety.
-  - Upstream features adopted on top: per-variant config columns (`get_filament_config_index` / `get_nozzle_config_index`), 2-arg `toolchange(filament_id, nozzle_id)`, nozzle/hotend/variant placeholders, `m_cached_extruder_idx`, filament-volume maps in `full_config`, printer-agent plugin system, wipe-tower printable-height clamp + `has_filament_switcher`, per-variant ramming/pre-cooling filament options, `top_base_interface_layers`.
-  - One decision deferred to the user: the `_make_wipe_tower()` purge-volume model — chose "keep branch, drop upstream's" (see Decisions).
-  - Deps rebuilt (upstream added `python3`/`pybind11`/`wxInspector`; 15m26s) and full arm64 macOS Release build clean — 743/743 targets, 0 errors, 11m24s.
-  - Committed as `2f1be0201b` (`Merge upstream/main into ultimate-merge.v2`); branch now 0 behind / 87 ahead of upstream. Nothing pushed.
-- Stopped at:
-  - Merge committed and building clean. Not pushed — MERGE_NOTES requires explicit OK.
-- Next step:
-  - Runtime smoke test before pushing: slice a multi-material plate on a non-BBL printer (exercises the unified wipe-tower path + `_travel_to_z` preamble), and check a toolchange's `;VT`/T output under Orca-managed mapping. This sync also pulls in upstream's Python plugin system (pybind11 + bundled Python 3), a larger surface than a typical sync.
 - Open blockers:
   - none
 

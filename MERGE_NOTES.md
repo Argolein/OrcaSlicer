@@ -154,9 +154,10 @@ lines; upstream code that merges cleanly can still bypass a branch feature. Afte
   `initial_*tool/_extruder` uses the mapped id (2026-11-16: a new filament end G-code block in `append_tcr` did not);
 - upstream wipe-tower commits that touched only `WipeTower2.cpp` / `append_tcr2`: port or record each in PLANS.md.
 
-**Deps build on this Mac picks up Homebrew through pkg-config (2026-11-16).** The build script hides
-Homebrew from CMake only. Assimp asks pkg-config for `minizip`, found Homebrew's, and failed on
-`unzip.h`. Build deps with pkg-config pointed at an empty folder:
+**Deps can pick up Homebrew through pkg-config (2026-11-16).** The build script hides Homebrew from
+CMake only. Assimp asked pkg-config for `minizip`, found Homebrew's and failed on `unzip.h`; the
+recipe now forces its bundled copy (`-DASSIMP_BUILD_MINIZIP=ON` in `deps/Assimp/Assimp.cmake`). If
+another dependency fails the same way, build deps with pkg-config pointed at an empty folder:
 `env -u PKG_CONFIG_PATH PKG_CONFIG_LIBDIR=<empty dir> ./build_release_macos.sh -d -x -a arm64`
 (a fresh deps folder may use `-x`; only an existing Unix Makefiles cache must not).
 

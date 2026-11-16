@@ -34,6 +34,9 @@ orcaslicer_add_cmake_project(Assimp
         -DASSIMP_BUILD_OBJ_IMPORTER=ON
         -DASSIMP_BUILD_FBX_IMPORTER=ON
         ${_assimp_build_zlib}
+        # Use the bundled minizip: Assimp otherwise asks pkg-config, which finds a system
+        # (e.g. Homebrew) minizip whose headers it then cannot include ('unzip.h' not found).
+        -DASSIMP_BUILD_MINIZIP=ON
         -DASSIMP_WARNINGS_AS_ERRORS=OFF
         -DBUILD_WITH_STATIC_CRT=OFF
 )

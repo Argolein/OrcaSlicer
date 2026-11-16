@@ -4837,6 +4837,10 @@ static bool uses_orca_managed_single_physical_extruder_mapping(const PrintConfig
 
 static std::vector<int> normalize_filament_maps(const std::vector<int> &maps, size_t filament_count, size_t physical_extruder_count, bool use_orca_mapping)
 {
+    // Without Orca-managed mapping the map is the user's (or the printer's) choice, as upstream.
+    if (!use_orca_mapping)
+        return maps;
+
     const int max_extruder_id = std::max(1, int(physical_extruder_count));
 
     std::vector<int> normalized = maps;
@@ -4845,11 +4849,6 @@ static std::vector<int> normalize_filament_maps(const std::vector<int> &maps, si
         int &mapped_extruder = normalized[filament_idx];
         if (filament_idx < physical_extruder_count) {
             mapped_extruder = int(filament_idx) + 1;
-            continue;
-        }
-
-        if (!use_orca_mapping) {
-            mapped_extruder = 1;
             continue;
         }
 

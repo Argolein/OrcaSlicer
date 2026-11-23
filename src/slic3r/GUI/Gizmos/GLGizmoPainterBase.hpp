@@ -19,7 +19,7 @@
 #include "libslic3r/Color.hpp"
 #include <memory>
 #include <vector>
-#include <set>
+#include <map>
 #include <string>
 #include <wx/event.h>
 #include <wx/string.h>
@@ -104,11 +104,14 @@ struct TrianglePatch {
     std::vector<int> triangle_indices;
     std::vector<int> facet_indices;
     EnforcerBlockerType type = EnforcerBlockerType::NONE;
-    std::set<EnforcerBlockerType> neighbor_types;
+    // Border length this patch shares with each differently painted state around it.
+    std::map<EnforcerBlockerType, float> neighbor_border;
     // if area is larger than GapAreaMax, stop accumulate left triangle areas to improve performance
     float area = 0.f;
 
     bool is_fragment() const;
+    // State gap fill gives this patch: the neighbour with the longest shared border.
+    EnforcerBlockerType gap_fill_type() const;
 };
 
 class TriangleSelectorPatch : public TriangleSelectorGUI {

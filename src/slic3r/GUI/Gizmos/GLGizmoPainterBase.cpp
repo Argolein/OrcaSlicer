@@ -1386,6 +1386,14 @@ bool TrianglePatch::is_fragment() const
     return this->area < TriangleSelectorPatch::gap_area;
 }
 
+EnforcerBlockerType TrianglePatch::gap_fill_type() const
+{
+    assert(!neighbor_border.empty());
+    // max_element keeps the first of equal borders, so a tie goes to the lower state.
+    return std::max_element(neighbor_border.begin(), neighbor_border.end(),
+                            [](const auto &a, const auto &b) { return a.second < b.second; })->first;
+}
+
 float TriangleSelectorPatch::gap_area = TriangleSelectorPatch::GapAreaMin;
 
 void TriangleSelectorPatch::render(ImGuiWrapper* imgui, const Transform3d& matrix)
@@ -1422,8 +1430,8 @@ void TriangleSelectorPatch::render(ImGuiWrapper* imgui, const Transform3d& matri
         if (this->has_VBOs(buffer_idx)) {
             const TrianglePatch& patch = m_triangle_patches[buffer_idx];
             ColorRGBA color;
-            if (patch.is_fragment() && !patch.neighbor_types.empty()) {
-                size_t color_idx = (size_t)*patch.neighbor_types.begin();
+            if (patch.is_fragment() && !patch.neighbor_border.empty()) {
+                size_t color_idx = (size_t)patch.gap_fill_type();
                 color = m_ebt_colors[color_idx];
                 color.a(0.85);
             }
@@ -1494,10 +1502,10 @@ void TriangleSelectorPatch::update_triangles_per_type()
 void TriangleSelectorPatch::update_selector_triangles()
 {
     for (TrianglePatch& patch : m_triangle_patches) {
-        if (!patch.is_fragment() || patch.neighbor_types.empty())
+        if (!patch.is_fragment() || patch.neighbor_border.empty())
             continue;
 
-        EnforcerBlockerType type = *patch.neighbor_types.begin();
+        EnforcerBlockerType type = patch.gap_fill_type();
         for (int facet_idx : patch.facet_indices) {
             m_triangles[facet_idx].set_state(type);
         }
@@ -1511,18 +1519,45 @@ void TriangleSelectorPatch::update_triangles_per_patch()
 
     bool using_wireframe = (m_need_wireframe && wxGetApp().plater()->is_wireframe_enabled() && wxGetApp().plater()->is_show_wireframe()) ? true : false; 
 
-    auto get_all_touching_triangles = [this](int facet_idx, const Vec3i32& neighbors, const Vec3i32& neighbors_propagated) -> std::vector<int> {
+    // Length of edge (a, b) covered by triangle tr_idx, which touches that edge along one of its own edges.
+    // The two vertices of tr_idx nearest the edge's line bound the shared part; no tolerance, so rounded
+    // subdivision midpoints do not matter.
+    auto shared_edge_length = [this](int tr_idx, const Vec3f& a, const Vec3f& b) {
+        const float len = (b - a).norm();
+        if (len <= 0.f)
+            return 0.f;
+        const Vec3f dir = (b - a) / len;
+        std::array<float, 3> along, off_line;
+        for (int k = 0; k < 3; ++k) {
+            const Vec3f& p = m_vertices[m_triangles[tr_idx].verts_idxs[k]].v;
+            along[k]       = (p - a).dot(dir);
+            off_line[k]    = (p - a - along[k] * dir).squaredNorm();
+        }
+        const int   apex = int(std::max_element(off_line.begin(), off_line.end()) - off_line.begin());
+        const float t0   = along[(apex + 1) % 3];
+        const float t1   = along[(apex + 2) % 3];
+        return std::max(0.f, std::min(std::max(t0, t1), len) - std::max(std::min(t0, t1), 0.f));
+    };
+
+    // Unsplit triangles touching facet_idx, each with the border length it shares with facet_idx.
+    auto get_all_touching_triangles = [this, &shared_edge_length](int facet_idx, const Vec3i32& neighbors, const Vec3i32& neighbors_propagated) {
         assert(facet_idx != -1 && facet_idx < int(m_triangles.size()));
         assert(this->verify_triangle_neighbors(m_triangles[facet_idx], neighbors));
-        std::vector<int> touching_triangles;
+        std::vector<std::pair<int, float>> touching_triangles;
         Vec3i32            vertices = { m_triangles[facet_idx].verts_idxs[0], m_triangles[facet_idx].verts_idxs[1], m_triangles[facet_idx].verts_idxs[2] };
-        append_touching_subtriangles(neighbors(0), vertices(1), vertices(0), touching_triangles);
-        append_touching_subtriangles(neighbors(1), vertices(2), vertices(1), touching_triangles);
-        append_touching_subtriangles(neighbors(2), vertices(0), vertices(2), touching_triangles);
-
-        for (int neighbor_idx : neighbors_propagated)
-            if (neighbor_idx != -1 && !m_triangles[neighbor_idx].is_split())
-                touching_triangles.emplace_back(neighbor_idx);
+        std::vector<int> edge_triangles;
+        for (int i = 0; i < 3; ++i) {
+            const Vec3f& a = m_vertices[vertices(i)].v;
+            const Vec3f& b = m_vertices[vertices((i + 1) % 3)].v;
+            // Smaller subtriangles along edge i.
+            edge_triangles.clear();
+            append_touching_subtriangles(neighbors(i), vertices((i + 1) % 3), vertices(i), edge_triangles);
+            for (int tr_idx : edge_triangles)
+                touching_triangles.emplace_back(tr_idx, shared_edge_length(tr_idx, a, b));
+            // neighbors_propagated(i) lies across edge i and is at least as large as this facet, so it covers the whole edge.
+            if (const int neighbor_idx = neighbors_propagated(i); neighbor_idx != -1 && !m_triangles[neighbor_idx].is_split())
+                touching_triangles.emplace_back(neighbor_idx, (b - a).norm());
+        }
 
         return touching_triangles;
     };
@@ -1598,13 +1633,13 @@ void TriangleSelectorPatch::update_triangles_per_patch()
                 //patch.triangle_indices.insert(patch.triangle_indices.end(), triangle.verts_idxs.begin(), triangle.verts_idxs.end());
                 patch.facet_indices.push_back(current_facet);
 
-                std::vector<int> touching_triangles = get_all_touching_triangles(current_facet, neighbors[current_facet], neighbors_propagated[current_facet]);
-                for (const int tr_idx : touching_triangles) {
+                const auto touching_triangles = get_all_touching_triangles(current_facet, neighbors[current_facet], neighbors_propagated[current_facet]);
+                for (const auto& [tr_idx, border] : touching_triangles) {
                     if (tr_idx < 0)
                         continue;
 
                     if (m_triangles[tr_idx].get_state() != start_facet_state) {
-                        patch.neighbor_types.insert(m_triangles[tr_idx].get_state());
+                        patch.neighbor_border[m_triangles[tr_idx].get_state()] += border;
                         continue;
                     }
 
